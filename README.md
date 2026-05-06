@@ -3,27 +3,32 @@ Robot asistente guía.
 
 ## Índice del projecto
 - [Descripción](#Descripción)
-- [Estructura](#Estructura)
+- [Arquitectura Tecnológica](#Arquitectura)
 - [Software](#Software)
 - [Componentes Hardware](#Componentes-Hardware)
 - [Diseño 3D](#Diseño-3D)
-- [Herramientas](#Herramientas)
 - [Enlaces](#Enlaces)
 - [Miembros del equipo](#Miembros-del-equipo)
 
 ## Descripción
-El projecto trata de un robot asistente guía que permite a un usuario preguntar en voz alta donde esta un lugar o algún objeto y este guiará al usuario hacia su destino.
-La idea es que este robot se utilice en lugares como supermercados y colegios, para guiar a aquel que lo necesite.
+Este proyecto consiste en el desarrollo de un robot guia autónomo diseñado para la orientación en espacios interiores complejos, como supermercados y centros educativos. El robot interactúa con el usuario mediante comandos de voz, procesa la solicitud y guía a la persona hasta el destino u objeto deseado de forma segura y eficiente.
 
-## Estructura
+## Arquitectura Tecnológica
+- SLAM (Simultaneous Localization and Mapping):
+Utilizamos algoritmos de SLAM para que el robot construya un mapa del entorno mientras calcula su propia posición. Esto se logra mediante la fusión de datos de una cámara (Visual SLAM) y un sensor de distancia (LiDAR y Ultrasonidos), permitiendo una navegación precisa en diferentes escenarios.
+
+- Visión Artificial y Reconocimiento de Objetos:
+Una vez el terreno es conocido, el sistema emplea modelos de Computer Vision para diferenciar objetos o productos. Esto permite que el robot no solo sepa donde esta la fruta, sino también que tipo de fruta hay.
+
+- Procesamiento de Lenguaje y Voz (Cloud Services):
+  - Speech-to-Text (STT): Captura del audio ambiental para convertir la voz del usuario en texto procesable mediante servicios en la nube.
+  - Text-to-Speech (TTS): Generación de una respuesta vocal para que el robot confirme el destino o interactúe con el usuario.
 
 ## Software
 
 ## Componentes Hardware
 
 ## Diseño 3D
-
-## Herramientas
 
 ## Enlaces:
 [Documento de Especificación de Requisitos del Sistema](https://docs.google.com/document/d/17ys1AdFQXFy2MDise_eSwjZ4mOGR0Uw6nk950iQLUHs/edit?usp=sharing)
