@@ -17,6 +17,8 @@ La idea es que este robot se utilice en lugares como supermercados y colegios, p
 
 ## Estructura
 
+## Software
+
 ## Componentes Hardware
 
 ## Diseño 3D
