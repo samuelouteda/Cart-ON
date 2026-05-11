@@ -5,10 +5,10 @@ from dotenv import load_dotenv
 # anadimos la raiz del proyecto al path para importar modulos correctamente
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from processing.data import data_manager
-from processing.HRI import HRI
-from sensor import sensor
-from actuation.movement import speaker
+from source.modules.processing.data import data_manager
+from source.modules.processing.HRI import HRI
+from source.modules.sensor import sensorHRI
+from source.modules.actuation.movement import speaker
 
 # inicializar entorno y credenciales
 load_dotenv()
@@ -35,7 +35,7 @@ def main_loop():
         print("\nplanificador: esperando eventos sensoriales...")
         
         # 1. obtener datos del sensor (microfono)
-        audio_data = sensor.capture_audio()
+        audio_data = sensorHRI.capture_audio()
         if not audio_data:
             continue
 
