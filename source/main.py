@@ -3,10 +3,10 @@ from dotenv import load_dotenv
 
 from core.event_bus import EventBus
 
-from modules.decision_making.planner.planner import Planner
-from modules.processing.HRI.HRI import HRIModule
-from modules.sensor.sensor import SensoryModule
-from modules.processing.data.data_manager import DataModule
+from source.modules.planner import Planner
+from source.modules.HRI import HRIModule
+from source.modules.sensor import SensoryModule
+from source.modules.data_manager import DataModule
 
 def main():
 

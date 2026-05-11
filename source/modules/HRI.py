@@ -8,7 +8,7 @@ from services.speech_processing import (
 )
 
 #from services.speaker_service import play_audio
-from actuation.speaker import play_audio
+from source.modules.speaker import play_audio
 
 
 import os
