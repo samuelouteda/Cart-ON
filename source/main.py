@@ -1,139 +1,38 @@
-import os
+from queue import Queue
+from collections import deque as Deque
 from dotenv import load_dotenv
+import os
+import sys
 
-from core.event_bus import EventBus
+from modules.decision_making.planner import Planner
+from modules.processing.navigation.navigation import Navigation
+from modules.sensor.sensor import SensoryModule
+from modules.processing.HRI.HRI import HRI
+from modules.processing.data.data_manager import DataModule
 
-from source.modules.planner import Planner
-from source.modules.HRI import HRIModule
-from source.modules.sensor import SensoryModule
-from source.modules.data_manager import DataModule
+event_bus = Queue()
+sensor_data = {}
 
-def main():
+api_key = ""
+load_dotenv()
+api_key = os.getenv("API_KEY")
 
-    # =========================
-    # Load environment
-    # =========================
+if not api_key:
+    print("error critico: falta la api_key en el archivo .env")
+    exit()
 
-    load_dotenv()
+planner = Planner(event_bus)
+navigation = Navigation("Navigation", event_bus, sensor_data)
+sensory = SensoryModule("Sensory", event_bus, sensor_data)
+human_interaction = HRI("HRI", event_bus, sensor_data, api_key)
+data_manager = DataModule("Data", event_bus)
 
-    api_key = os.getenv("API_KEY")
+planner.append_modules([navigation, sensory, human_interaction, data_manager])
 
-    if not api_key:
-        raise Exception(
-            "Missing API_KEY in .env"
-        )
+planner.start()
+navigation.start()
+sensory.start()
+human_interaction.start()
+data_manager.start()
 
-    # =========================
-    # Create Event Bus
-    # =========================
-
-    event_bus = EventBus()
-
-    # =========================
-    # Create Modules
-    # =========================
-
-    planner = Planner(
-        name="Planner",
-        event_bus=event_bus
-    )
-
-    hri = HRIModule(
-        name="HRI",
-        event_bus=event_bus,
-        api_key=api_key
-    )
-
-    sensory = SensoryModule(
-        name="Sensory",
-        event_bus=event_bus
-    )
-
-    data_module = DataModule(
-        name="Data",
-        event_bus=event_bus
-    )
-
-    # =========================
-    # Register Subscriptions
-    # =========================
-
-    # HRI receives audio
-    event_bus.subscribe(
-        "audio_captured",
-        hri
-    )
-
-    # Planner receives parsed commands
-    event_bus.subscribe(
-        "voice_command",
-        planner
-    )
-
-    # Data module updates shopping list
-    event_bus.subscribe(
-        "add_item",
-        data_module
-    )
-
-    event_bus.subscribe(
-        "clear_list",
-        data_module
-    )
-
-    # HRI speaks messages
-    event_bus.subscribe(
-        "speak",
-        hri
-    )
-
-    # =========================
-    # Start Modules
-    # =========================
-
-    modules = [
-        planner,
-        hri,
-        sensory,
-        data_module
-    ]
-
-    for module in modules:
-
-        print(f"Starting {module.name}")
-
-        module.start()
-
-    # =========================
-    # Initial greeting
-    # =========================
-
-    from core.event import Event
-
-    event_bus.publish(
-        Event(
-            type="speak",
-            data="Sistema iniciado. Dime qué necesitas.",
-            source="main"
-        )
-    )
-
-    # =========================
-    # Keep alive
-    # =========================
-
-    try:
-
-        for module in modules:
-            module.join()
-
-    except KeyboardInterrupt:
-
-        print("\nShutting down...")
-
-        for module in modules:
-            module.running = False
-
-
-if __name__ == "__main__":
-    main()
+planner.join(60)

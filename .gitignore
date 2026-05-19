@@ -1,3 +1,4 @@
 #ignoramos los archivos..
 .env
 __pycache__/
+*.pyc
