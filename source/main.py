@@ -9,6 +9,11 @@ from modules.processing.navigation.navigation import Navigation
 from modules.sensor.sensor import SensoryModule
 from modules.processing.HRI.HRI import HRI
 from modules.processing.data.data_manager import DataModule
+from modules.processing.HRI.HRI_Wakeword import *
+import time
+
+#Netejaaaa
+os.system('cls' if os.name == 'nt' else 'clear')
 
 event_bus = Queue()
 sensor_data = {}
@@ -38,6 +43,7 @@ sensory = SensoryModule("Sensory", event_bus, sensor_data)
 human_interaction = HRI("HRI", event_bus, sensor_data, api_key, gemini_api_key)
 data_manager = DataModule("Data", event_bus)
 
+wake = HRI_WakeWord("carton") #WakeWord!!1
 planner.append_modules([navigation, sensory, human_interaction, data_manager])
 
 planner.start()
@@ -46,4 +52,14 @@ sensory.start()
 human_interaction.start()
 data_manager.start()
 
-planner.join(60)
+#planner.join(60)
+while True:
+    # 1. Esperar wake-word
+    if wake.listen():
+        print("\n[Sistema] Wake-word detectada! Activant HRI antic...\n")
+
+        # 2. Activar el HRI antic (només quan es desperta)
+        human_interaction.loop()  # ← funció que afegirem al HRI antic
+
+        print("\n[Sistema] Tornant a mode wake-word...\n")
+        time.sleep(0.5)
