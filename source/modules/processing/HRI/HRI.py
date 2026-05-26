@@ -1,3 +1,12 @@
+import sys
+from pathlib import Path
+
+# --- HACK PARA ENCONTRAR LA CARPETA 'CORE' ---
+current_dir = Path(__file__).resolve().parent
+source_dir = current_dir.parent.parent.parent
+sys.path.append(str(source_dir))
+# ---------------------------------------------
+
 from core.base_module import BaseModule
 from core.event import Event
 from core.constants import INDENT_OUTPUT
@@ -32,11 +41,8 @@ class HRI(BaseModule):
         # --- CONFIGURACIÓN DE GEMINI API ---
         print(f"[{self.name}] Inicializando motor NLP Gemini...")
         genai.configure(api_key=gemini_api_key)
-        self.nlp_model = genai.GenerativeModel('gemini-1.5-flash')
+        self.nlp_model = genai.GenerativeModel('gemini-2.5-flash')
         
-        # --- CONFIGURACIÓN HARDWARE SPI (Raspberry Pi 4) ---
-        # Comparten SPI bus 0, Reset y DC. Cada pantalla tiene su propio pin CE (Chip Enable)
-        # Ojo Izquierdo en CE0 (GPIO 8), Ojo Derecho en CE1 (GPIO 7)
         # --- CONFIGURACIÓN HARDWARE SPI ---
         if LUMA_AVAILABLE:
             try:
@@ -66,18 +72,19 @@ class HRI(BaseModule):
         return audio
 
     def parse_intent(self, raw_text):
-        """
-        Envía el texto a Gemini. Extrae órdenes o genera respuestas conversacionales.
-        """
         prompt = f"""
         Eres la IA de un amigable robot asistente de supermercado.
         Analiza la petición del usuario y extrae la intención final.
         
         Intenciones válidas: 
-        - "add" (añadir producto)
-        - "delete" (quitar/borrar producto)
-        - "read" (leer qué hay en la lista)
-        - "clear" (vaciar toda la lista)
+        - "add" (añadir producto a la lista de la compra)
+        - "delete" (quitar/borrar producto de la lista de la compra)
+        - "read_list" (leer qué productos hay apuntados en la lista)
+        - "read_stock" (preguntar por el stock/inventario de un producto en la tienda)
+        - "check_availability" (comprobar si los productos de mi lista están disponibles en la tienda)
+        - "clear" (vaciar toda la lista de la compra)
+        - "start_mapping" (iniciar modo de mapeo/auditoría con la cámara)
+        - "stop_mapping" (detener el modo de mapeo)
         - "chat" (saludos, insultos, preguntas sobre ti o charla general)
         - "unknown" (ruido sin sentido)
 
@@ -86,7 +93,7 @@ class HRI(BaseModule):
         
         Reglas estrictas:
         1. Si la intención es "chat", en el campo "reply" debes escribir una respuesta amigable, muy breve y natural en español (máximo 2 frases).
-        2. Si la intención NO es "chat" (ej: es "add" o "delete"), el campo "reply" debe ser null.
+        2. Si la intención NO es "chat", el campo "reply" debe ser null.
         3. Si no hay un producto claro, "item" es null. Si no especifica cantidad, "quantity" es 1.
 
         Petición del usuario: "{raw_text}"
@@ -147,7 +154,6 @@ class HRI(BaseModule):
         except Exception as e: print(f"TTS Petition error: {e}")
         return None
     
-    # --- PROCESADOR GRÁFICO ---
     def set_emocion(self, nueva_emocion):
         if nueva_emocion != self.emocion_actual:
             self.emocion_actual = nueva_emocion
@@ -194,46 +200,28 @@ class HRI(BaseModule):
         
         print(f"{INDENT_OUTPUT}[{self.name}] Usuario dice: \"{raw_text}\"")
         
-        # Ahora recibimos también el 'reply' de Gemini
         intent, item, quantity, reply = self.parse_intent(raw_text)
 
-        # --- 1. Lógica de Interacción Social (Chat) ---
         if intent == "chat" and reply:
             print(f"{INDENT_OUTPUT}[{self.name}] Charla detectada. Respondiendo...")
             self.set_emocion("feliz")
             self.speak(reply)
-            return # Terminamos aquí, no hay que añadir nada a la lista de la compra
+            return
 
-        # --- 2. Lógica de Errores ---
-        if intent == "unknown":
+        elif intent == "unknown":
             print(f"{INDENT_OUTPUT}[{self.name}] Orden desconocida.")
             self.set_emocion("confuso")
             self.speak("Perdona, no he entendido eso. ¿Me lo repites?")
             return
     
-        # --- 3. Lógica de Tareas (Añadir, borrar, leer) ---
-        # Si es una orden de compra real, avisamos al cerebro (Planner)
-        self.publish_event(
-            Event(type="voice_command", data={"intent": intent, "item": item, "quantity": quantity, "raw_text": raw_text}, origin=self.name)
-        )
-        audio_data = self.read_audio()
-        if not audio_data: return
-
-        print(f"{INDENT_OUTPUT}[{self.name}] Listening...")
-        raw_text = self.speech_to_text(audio_data)
-        if not raw_text: return
-        
-        print(f"{INDENT_OUTPUT}[{self.name}] Audio detected: \"{raw_text}\"")
-        intent, item, quantity = self.parse_intent(raw_text)
-
-        if intent == "unknown":
-            print(f"{INDENT_OUTPUT}[{self.name}] Unknown order. Ignoring input.")
-            self.set_emocion("confuso")
-            return
-    
-        self.publish_event(
-            Event(type="voice_command", data={"intent": intent, "item": item, "quantity": quantity, "raw_text": raw_text}, origin=self.name)
-        )
+        else:
+            self.publish_event(
+                Event(
+                    type="voice_command", 
+                    data={"intent": intent, "item": item, "quantity": quantity, "raw_text": raw_text}, 
+                    origin=self.name
+                )
+            )
 
     def handle_task(self, task):
         if task.type == "speak": print(f"    [{self.name}] Playing audio.")
@@ -249,3 +237,61 @@ class HRI(BaseModule):
         
         if self.emocion_actual != "neutral" and time.time() - self.ultimo_cambio_emocion > 4.0:
             self.set_emocion("neutral")
+
+# =======================================================================================
+# A PARTIR DE AQUÍ EL CÓDIGO ESTÁ TOTALMENTE PEGADO A LA IZQUIERDA (FUERA DE LA CLASE)
+# =======================================================================================
+
+if __name__ == "__main__":
+    import os
+    
+    print("\n" + "="*50)
+    print(" 🧪 INICIANDO TEST AISLADO DEL MÓDULO HRI 🧪")
+    print("="*50)
+
+    class MockEventBus:
+        def put(self, event):
+            print(f"\n 📬 [BUS FALSO] El HRI intentó publicar un evento:")
+            print(f"      Tipo: {event.type}")
+            print(f"      Datos: {event.data}")
+
+    mock_bus = MockEventBus()
+    mock_stream = {"audio": None, "frame": None}
+
+    # ¡No olvides cambiar las APIs si no las tienes en el .env!
+    API_KEY_GOOGLE = "AIzaSyCMV4L39MGvadx6XLsm_99Comj4sZ5EUn4"
+    API_KEY_GEMINI = "AIzaSyBTwgytXG3GUqNVhnc3r9Z_BMWI6E-YURM"
+
+    print("\n[!] Encendiendo el módulo HRI en modo laboratorio...")
+    hri_test = HRI(
+        name="HRI_Test",
+        event_bus=mock_bus,
+        shared_sensor_stream=mock_stream,
+        stt_tts_api_key=API_KEY_GOOGLE,
+        gemini_api_key=API_KEY_GEMINI
+    )
+
+    print("\n--- PRUEBA DE ESTRÉS DEL NLP (Traductor de Intenciones) ---")
+    
+    frases_prueba = [
+        "Cartón, mete tres cartones de leche entera por favor.",
+        "Uy me he equivocado, saca los macarrones de la lista.",
+        "Borra todo lo que te he dicho, empezamos de cero.",
+        "Hola maquinita, ¿qué tal estás hoy? ¿te pagan bien?",
+        "asdfghjkl", 
+        "Inicia el modo de mapeo nocturno" 
+    ]
+
+    for frase in frases_prueba:
+        print(f"\n🗣️ Humano dice: '{frase}'")
+        intent, item, quantity, reply = hri_test.parse_intent(frase)
+        
+        print(f"🤖 El cerebro de Cart-ON devuelve:")
+        print(f"   - Intención : {intent}")
+        print(f"   - Producto  : {item}")
+        print(f"   - Cantidad  : {quantity}")
+        print(f"   - Respuesta : {reply}")
+
+    print("\n" + "="*50)
+    print(" TEST FINALIZADO.")
+    print("="*50)
