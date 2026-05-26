@@ -3,9 +3,10 @@ import sys
 import json
 import pyaudio
 import numpy as np
-from vosk import Model, KaldiRecognizer
+from vosk import Model, KaldiRecognizer, SetLogLevel
 
 def test_vosk_wakeword():
+
     # 1. Verificar que la carpeta del modelo existe
     directorio_script = os.path.dirname(os.path.abspath(__file__))
     
@@ -13,16 +14,11 @@ def test_vosk_wakeword():
     model_path = os.path.join(directorio_script, "model")
     
     if not os.path.exists(model_path):
-        print(f"❌ Error: No encuentro la carpeta '{model_path}'.")
+        print(f"Error: No encuentro la carpeta '{model_path}'.")
         print("Descarga el modelo 'vosk-model-small-es', descomprímelo y llámalo 'model'.")
         sys.exit(1)
 
     print("Cargando cerebro de Vosk en español (100% offline)...")
-    
-    # 2. Inicializar Vosk
-    # (Ocultamos un poco el texto de log interno que escupe Vosk al cargar)
-    from vosk import SetLogLevel
-    SetLogLevel(-1) 
     
     modelo = Model(model_path)
     # 16000 Hz es la frecuencia estándar para estos modelos
@@ -38,8 +34,7 @@ def test_vosk_wakeword():
     stream = pa.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
     stream.start_stream()
 
-    print("\n🤖 Oídos activos. Di 'Cartón' para despertarme (o habla normal para ver qué entiendo).")
-    print("Pulsa Ctrl+C para salir.\n")
+    print("\n Cart-ON! Di 'carton' para despertar al robot.")
 
     try:
         while True:

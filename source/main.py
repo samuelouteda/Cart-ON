@@ -14,18 +14,28 @@ event_bus = Queue()
 sensor_data = {}
 shared_data = {} #Implementar sistema de almacenamiento compartido para datos no relacionados con sensores
 
-api_key = ""
+# Cargar variables de entorno
 load_dotenv()
-api_key = os.getenv("API_KEY")
 
+# Extraer ambas claves
+api_key = os.getenv("API_KEY")             #Google Cloud (STT/TTS)
+gemini_api_key = os.getenv("GEMINI_API_KEY") #Google AI Studio (NLP)
+
+# Validaciones de seguridad
 if not api_key:
-    print("error critico: falta la api_key en el archivo .env")
-    exit()
+    print("Error crítico: falta la API_KEY (Voz) en el archivo .env")
+    sys.exit(1)
+    
+if not gemini_api_key:
+    print("Error crítico: falta la GEMINI_API_KEY (Cerebro) en el archivo .env")
+    sys.exit(1)
 
 planner = Planner(event_bus)
 navigation = Navigation("Navigation", event_bus, sensor_data)
 sensory = SensoryModule("Sensory", event_bus, sensor_data)
-human_interaction = HRI("HRI", event_bus, sensor_data, api_key)
+
+# Pasamos ambas claves al módulo de interacción
+human_interaction = HRI("HRI", event_bus, sensor_data, api_key, gemini_api_key)
 data_manager = DataModule("Data", event_bus)
 
 planner.append_modules([navigation, sensory, human_interaction, data_manager])

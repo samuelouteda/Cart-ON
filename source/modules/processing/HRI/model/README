@@ -1,0 +1,10 @@
+Copyright 2022-2050 AC Technologies LLC
+
+Big Spanish model for Vosk
+
+WER
+
+%WER 32.71 [ 40496 / 123813, 5181 ins, 14547 del, 20768 sub ] exp/chain/tdnn/decode_test_call_rnnlm/wer_10_0.0
+%WER 7.50 [ 11420 / 152364, 1459 ins, 2222 del, 7739 sub ] exp/chain/tdnn/decode_test_cv_rnnlm/wer_12_0.0
+%WER 5.84 [ 5168 / 88499, 874 ins, 873 del, 3421 sub ] exp/chain/tdnn/decode_test_mls_rnnlm/wer_11_0.0
+%WER 10.05 [ 1449 / 14416, 353 ins, 407 del, 689 sub ] exp/chain/tdnn/decode_test_mtedx_rnnlm/wer_10_0.0
