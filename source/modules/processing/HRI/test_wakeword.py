@@ -6,7 +6,7 @@ import numpy as np
 from vosk import Model, KaldiRecognizer, SetLogLevel
 
 def test_vosk_wakeword():
-
+    #elrichmc 2024-06-20
     # 1. Verificar que la carpeta del modelo existe
     directorio_script = os.path.dirname(os.path.abspath(__file__))
     
