@@ -37,4 +37,4 @@ sensory.start()
 human_interaction.start()
 data_manager.start()
 
-planner.join()
+planner.join(60)

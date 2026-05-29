@@ -13,14 +13,23 @@ class Speaker:
         self.init_speaker()
 
     def init_speaker(self):
-        # inicializa el canal de hardware de audio
-        pygame.mixer.init()
+       # PROTECCIÓN CLOUD / DOCKER: Si no hay hardware de sonido, capturamos el error
+        try:
+            pygame.mixer.init()
+            self.hardware_disponible = True
+        except Exception as e:
+            self.hardware_disponible = False
+            print(f"[{self.name}] Aviso: Hardware de sonido no disponible (Entorno Cloud/Docker)")
 
     def play_audio(self, audio_bytes):
         # recibe un flujo de bytes puros y los ejecuta en el hardware (altavoces)
         if not audio_bytes:
             return
-            
+        
+        # CONTROL CLOUD: Si no tenemos tarjeta de sonido física, saltamos la reproducción   
+        if not getattr(self, 'hardware_disponible', True):
+            return
+         
         temp_filename = "respuesta_temp.mp3"
         
         try:

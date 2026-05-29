@@ -3,6 +3,7 @@ from core.event import Event
 from core.constants import INDENT_OUTPUT
 from core.task import Task
 from modules.actuation.speaker import Speaker
+from modules.actuation.display import Display
 
 import requests
 import base64
@@ -17,7 +18,9 @@ class HRI(BaseModule):
     _delete_commands = ["borrar", "borra", "quita", "elimina", "saca"]
     _read_commands = ["qué hay", "lee", "dime", "cuál es", "revisa", "muestra", "enseña"]
     _clear_commands = ["vaciar", "vacía", "limpia", "borra toda"]
-
+    # AFEGIR JUNTAMENT AMB ELS ALTRES ATRIBUTS DE CLASSE DE VOCABULARI
+    _shutdown_commands = ["cerrar", "apagar", "desconectar", "salir", "terminar", "apágate", "muerete", "boom"]
+    
     _filler_words = ["por", "favor", "porfa", "a", "en", "la", "lista", "quiero", "necesito", "el", "los", "las", "un", "una"]
     _containers = ["bote", "botes", "pote", "potes", "litro", "litros", "paquete", "paquetes", "botella", "botellas", "de"]
 
@@ -35,6 +38,7 @@ class HRI(BaseModule):
         self.data_task_bus = data_task_bus
         self.shared_data = shared_data
         self.speaker = Speaker("Speaker", event_bus, shared_data)
+        self.display = Display("Display", event_bus, shared_data)
 
     def get_audio(self): 
         """Reads audio without consuming it"""
@@ -85,7 +89,9 @@ class HRI(BaseModule):
             return "read", None, None
         elif any(command in raw_text for command in self._clear_commands):
             return "clear", None, None
-            
+        elif any(command in raw_text for command in self._shutdown_commands):
+            return "shutdown", None, None  
+        
         return "unknown", None, None
 
     def speech_to_text(self, audio_data):
@@ -132,26 +138,44 @@ class HRI(BaseModule):
     
     def process_audio(self):
         audio_data = self.read_audio()
-        print(f"{INDENT_OUTPUT}[{self.name}] Listening...")
+       # print(f"{INDENT_OUTPUT}[{self.name}] Listening...")
 
         if not audio_data:
+            self.display.update_data(status="LISTENING", text="Esperando entrada por voz...")
             return
 
+        self.display.update_data(status="PROCESSING", text="Analizando señal de voz...")
         raw_text = self.speech_to_text(audio_data)
         
         if not raw_text:
+            self.display.update_data(status="LISTENING", text="No se ha detectado texto claro.")
             return
         
         print(f"{INDENT_OUTPUT}[{self.name}] Audio detected: \"{raw_text}\"")
-
+        self.display.update_data(status="PROCESSING", text=raw_text)
+        
         # Process audio
         intent, item, quantity = self.parse_intent(raw_text)
 
         if intent == "unknown":
-            self.speak("No he entendido lo que dijiste. ¿Podrías repetirlo?")
-            print(f"{INDENT_OUTPUT}[{self.name}] Unknown order. Ignoring input.")
+            # REFACTORITZACIÓ PER A UNA INTERACCIÓ MÉS NATURAL:
+            self.display.update_data(
+                status="CONFUSED",                          
+                title="Procesando Petición",                
+                data_dict={
+                    "He escuchado": f'"{raw_text}"',        # Mostrem clarament el que ha entès
+                    "->": "No sé cómo ayudarte con esto aún"
+                }
+                footer="Esperando aclaración del usuario..."
+            )
+            
+            # La veu del robot acompanya de manera natural el que es veu a la pantalla
+            self.speak("He entendido lo que decias, pero no sé cómo ayudarte con esa petición. ¿Podrías decirmelo de otra forma?")
+            print(f"{INDENT_OUTPUT}[{self.name}] Unknown order. Prompting user for clarification.")
             return
+        
         elif intent == "add":
+            self.display.update_data(status="SUCCESS", title="Elemento Añadido", data_dict={"Acción": "ADD", "Elemento": item, "Cantidad": quantity})
             self.add_data_task(
                 Task(
                     type="add_item", 
@@ -175,6 +199,7 @@ class HRI(BaseModule):
             )
         
         elif intent == "delete":
+            self.display.update_data(status="SUCCESS", title="Elemento Eliminado", data_dict={"Acción": "DELETE", "Elemento": item})
             self.add_data_task(
                 Task(
                     type="delete_item", 
@@ -198,6 +223,10 @@ class HRI(BaseModule):
                 )
             )
         elif intent == "read":
+            lista_actual = self.shared_data.get('shopping_list', {})
+            datos_pantalla = lista_actual if lista_actual else {"Estado": "Lista vacía"}
+            self.display.update_data(status="SUCCESS", title="Lectura de Datos", data_dict=datos_pantalla)
+           
             if self.shared_data['shopping_list']:
                 formatted_list = ", ".join([f"{qty} {prod}" for prod, qty in self.shared_data['shopping_list'].items()])
                 self.speak(f"en la lista tienes: {formatted_list}.")
@@ -212,6 +241,7 @@ class HRI(BaseModule):
                 )
             )
         elif intent == "clear":
+            self.display.update_data(status="SUCCESS", title="Limpieza de Datos", data_dict={"Registros": "Todos eliminados"})
             self.add_data_task(
                 Task(type="clear_list")
             )
@@ -224,6 +254,32 @@ class HRI(BaseModule):
                     origin=self.name
                 )
             )
+            
+        # AFEGIR AQUEST BLOC DINS DE LA CADENA IF/ELIF DE PROCESS_AUDIO
+        elif intent == "shutdown":
+            # 1. Actualitzem el display amb un estat de comiat amable
+            self.display.update_data(
+                status="SHUTDOWN",
+                title="Apagando Sistema",
+                data_dict={
+                    "Orden": "Cierre solicitado",
+                    "Estado": "Guardando datos y saliendo..."
+                },
+                footer="Desconexión en curso."
+            )
+            
+            # 2. El robot s'acomiada parlant de viva veu
+            self.speak("Entendido. Procedo a apagar el sistema. ¡Hasta pronto!")
+            
+            # 3. Notifiquem al Planner global que volem tancar-ho tot
+            self.publish_event(
+                Event(
+                    type="shutdown_requested",
+                    origin=self.name
+                )
+            )
+            print(f"{INDENT_OUTPUT}[{self.name}] Shutdown request published. Exiting loop.")
+            return
 
             
     
@@ -258,6 +314,7 @@ class HRI(BaseModule):
 
     def loop(self):
         self.process_audio()
+        self.display.refresh()
 
 
             
