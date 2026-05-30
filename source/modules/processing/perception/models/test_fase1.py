@@ -1,19 +1,21 @@
 import sys
 import os
+import cv2
+from ultralytics import YOLO
 
 # Ajuste de rutas por si lo ejecutas desde una subcarpeta
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../')))
 
-import cv2
-import time
-from ultralytics import YOLO
+print("📸 Iniciando Fase 1: Escáner de Recolección (MODO FOTO)...")
 
-print("📸 Iniciando Fase 1: Escáner de Recolección Cart-ON...")
-
+# ==========================================
 # 1. Configuración de Rutas y Modelo
-# Asegúrate de poner el nombre exacto de tu modelo de estanterías aquí
+# ==========================================
 MODELO_SHELF_PATH = 'source/modules/processing/perception/models/yolov8s_shelf.pt'
 CARPETA_GUARDADO = 'source/data/recortes_pendientes/'
+
+# ⚠️ PON AQUÍ LA RUTA DE LA FOTO QUE QUIERAS PROBAR
+IMAGEN_PRUEBA = 'C:\\Users\\User\\Documents\\GitHub\\Cart-ON\\a.jpeg' 
 
 # Creamos la carpeta si no existe
 if not os.path.exists(CARPETA_GUARDADO):
@@ -23,80 +25,71 @@ if not os.path.exists(CARPETA_GUARDADO):
 try:
     modelo_escaner = YOLO(MODELO_SHELF_PATH)
 except Exception as e:
-    print(f"❌ Error al cargar el modelo: {e}. ¿Seguro que el archivo {MODELO_SHELF_PATH} está en esta carpeta?")
+    print(f"❌ Error al cargar el modelo: {e}")
     sys.exit()
 
-# 2. Configuración de la Cámara y Temporizador
-cap = cv2.VideoCapture(0)
+# ==========================================
+# 2. Lectura y Análisis de la Imagen
+# ==========================================
+frame = cv2.imread(IMAGEN_PRUEBA)
+
+if frame is None:
+    print(f"❌ Error: No se ha podido leer la imagen en la ruta: '{IMAGEN_PRUEBA}'")
+    print("Asegúrate de que la foto existe y la ruta está bien escrita.")
+    sys.exit()
+
+print(f"🚀 Analizando la imagen '{IMAGEN_PRUEBA}'...")
+
+# Guardamos una copia limpia para recortar
+frame_limpio = frame.copy()
+
+# YOLO analiza la foto (quitamos stream=True porque es solo una imagen)
+resultados = modelo_escaner(frame, verbose=False)
+
 contador_fotos = 0
-tiempo_ultima_foto = 0
-COOLDOWN_FOTOS = 1.0  # Guarda una foto cada 1 segundo como máximo para no saturar
 
-print("🚀 Sistema listo. Pasa los productos por delante de la cámara...")
-
-while cap.isOpened():
-    exito, frame = cap.read()
-    if not exito:
-        print("❌ Error al leer la cámara.")
-        break
-
-    # Guardamos una copia limpia del frame original ANTES de que YOLO pinte recuadros
-    # Esto es crucial: queremos que la IA de la Fase 2 vea la foto limpia, no un recuadro verde.
-    frame_limpio = frame.copy()
-
-    # YOLO analiza buscando bultos
-    resultados = modelo_escaner(frame, stream=True, verbose=False)
-
-    tiempo_actual = time.time()
-
-    for r in resultados:
-        cajas = r.boxes
-        for caja in cajas:
-            confianza = caja.conf[0].item()
+for r in resultados:
+    cajas = r.boxes
+    for caja in cajas:
+        confianza = caja.conf[0].item()
+        
+        # Si ve un bulto con más de 50% de seguridad
+        if confianza > 0.20:
+            x1, y1, x2, y2 = map(int, caja.xyxy[0])
             
-            # Si ve un bulto con más de 50% de seguridad
-            if confianza > 0.50:
-                # Sacamos las coordenadas del recuadro
-                x1, y1, x2, y2 = map(int, caja.xyxy[0])
-                
-                # Dibujamos en pantalla para que TÚ sepas que lo ha visto
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-                cv2.putText(frame, "Detectando caja...", (x1, y1 - 10), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+            # Dibujamos el recuadro en la imagen de visualización
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 3)
+            cv2.putText(frame, f"Caja {confianza:.2f}", (x1, y1 - 10), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
 
-                # ¿Ha pasado suficiente tiempo desde la última foto?
-                if (tiempo_actual - tiempo_ultima_foto) > COOLDOWN_FOTOS:
-                    
-                    # MAGIA DE OPENCV: Recortamos el trozo de la foto original (limpia)
-                    # Ojo: OpenCV usa el formato imagen[y_inicio:y_fin, x_inicio:x_fin]
-                    recorte = frame_limpio[y1:y2, x1:x2]
-                    
-                    # Verificamos que el recorte no esté vacío (a veces YOLO falla cerca del borde)
-                    if recorte.size > 0:
-                        contador_fotos += 1
-                        nombre_archivo = f"{CARPETA_GUARDADO}crop_{contador_fotos:04d}.jpg"
+            # Recortamos la imagen limpia
+            recorte = frame_limpio[y1:y2, x1:x2]
+            
+            if recorte.size > 0:
+                contador_fotos += 1
+                nombre_archivo = f"{CARPETA_GUARDADO}crop_estatico_{contador_fotos:04d}.jpg"
 
-                        # Pasamos el recorte a blanco y negro
-                        gris = cv2.cvtColor(recorte, cv2.COLOR_BGR2GRAY)
+                # Comprobación de borrosidad (Laplaciano)
+                gris = cv2.cvtColor(recorte, cv2.COLOR_BGR2GRAY)
+                nivel_enfoque = cv2.Laplacian(gris, cv2.CV_64F).var()
 
-                        # Calculamos el nivel de enfoque (mientras más alto, más nítida)
-                        nivel_enfoque = cv2.Laplacian(gris, cv2.CV_64F).var()
+                # Umbral de nitidez (bajamos un poco a 80 para fotos estáticas que puedan tener peor luz)
+                if nivel_enfoque > 80:
+                    cv2.imwrite(nombre_archivo, recorte)
+                    print(f"✅ Recorte {contador_fotos} NÍTIDO guardado. (Score: {nivel_enfoque:.0f})")
+                else:
+                    print(f"⚠️ Recorte {contador_fotos} Descartado por borroso. (Score: {nivel_enfoque:.0f})")
 
-                        # Solo guardamos si supera el umbral de nitidez (ej: 100)
-                        if nivel_enfoque > 100:
-                            cv2.imwrite(nombre_archivo, recorte)
-                            print(f"✅ Recorte NÍTIDO guardado. (Score: {nivel_enfoque:.0f})")
-                        else:
-                            print(f"⚠️ Descartado por borroso. (Score: {nivel_enfoque:.0f})")
-                        
-                        tiempo_ultima_foto = tiempo_actual
+# ==========================================
+# 3. Resultado Visual
+# ==========================================
+print("-" * 50)
+print(f"🛑 Análisis completado. Se han guardado {contador_fotos} recortes en '{CARPETA_GUARDADO}'.")
+print("👀 Mostrando resultado... Pulsa CUALQUIER TECLA para cerrar la ventana.")
 
-    # Mostramos lo que ve la cámara (con los recuadros dibujados)
-    cv2.imshow('Fase 1: Escaner Cart-ON', frame)
+# Mostramos la imagen final con los recuadros pintados
+cv2.imshow('Fase 1: Resultado Modo Foto', frame)
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-cap.release()
+# El script se pausa aquí hasta que pulses una tecla teniendo la ventana de la imagen seleccionada
+cv2.waitKey(0)
 cv2.destroyAllWindows()
-print(f"🛑 Fin de la recolección. Se han guardado {contador_fotos} recortes en '{CARPETA_GUARDADO}'.")
