@@ -1,5 +1,10 @@
 import sys
 from pathlib import Path
+import requests
+import base64
+import time
+import json
+import io  # Para generar la imagen falsa si hace falta
 
 # --- HACK PARA ENCONTRAR LA CARPETA 'CORE' ---
 current_dir = Path(__file__).resolve().parent
@@ -10,12 +15,6 @@ sys.path.append(str(source_dir))
 from core.base_module import BaseModule
 from core.event import Event
 from core.constants import INDENT_OUTPUT
-
-import requests
-import base64
-import time
-import json
-import google.generativeai as genai
 
 # Librerías nativas para las pantallas en Raspberry Pi 4
 from PIL import Image, ImageDraw
@@ -30,20 +29,20 @@ except ImportError:
 
 class HRI(BaseModule):
     """
-    Layer 2: Human-Robot Interaction Module para Raspberry Pi 4 (SPI) + NLP Gemini
+    Layer 2: HRI Module (CLIENTE LIGERO). 
+    Controla el hardware local (micrófono, pantallas) y delega el pensamiento a la nube.
     """
 
-    def __init__(self, name, event_bus, shared_sensor_stream, stt_tts_api_key, gemini_api_key):
+    def __init__(self, name, event_bus, shared_sensor_stream, stt_tts_api_key):
         super().__init__(name, event_bus)
         self.data_stream = shared_sensor_stream
         self.api_key = stt_tts_api_key
         
-        # --- CONFIGURACIÓN DE GEMINI API ---
-        print(f"[{self.name}] Inicializando motor NLP Gemini...")
-        genai.configure(api_key=gemini_api_key)
-        self.nlp_model = genai.GenerativeModel('gemini-2.5-flash')
+        # ☁️ URL DEL CEREBRO EN LA NUBE (Google Cloud Run)
+        self.cloud_brain_url = "https://cart-on-api-225606614592.europe-southwest1.run.app/api/v1/interaccion"
+        print(f"[{self.name}] Módulo ligero iniciado. Conectado a la nube en: {self.cloud_brain_url}")
         
-        # --- CONFIGURACIÓN HARDWARE SPI ---
+        # --- CONFIGURACIÓN HARDWARE SPI (Pantallas) ---
         if LUMA_AVAILABLE:
             try:
                 self.serial_izq = spi(device=0, port=0, gpio_DC=24, gpio_RST=25)
@@ -71,60 +70,39 @@ class HRI(BaseModule):
         self.consume_audio()
         return audio
 
-    def parse_intent(self, raw_text):
-        prompt = f"""
-        Eres la IA de un amigable robot asistente de supermercado.
-        Analiza la petición del usuario y extrae la intención final.
+    # 🚀 LA CONEXIÓN CLOUD: Empaqueta la solicitud y se la manda a Google Cloud Run
+    def query_cloud_brain(self, raw_text):
+        print(f"[{self.name}] ☁️ Enviando petición al servidor central...")
+        data_payload = {"frase_usuario": raw_text}
         
-        Intenciones válidas: 
-        - "add" (añadir producto a la lista de la compra)
-        - "delete" (quitar/borrar producto de la lista de la compra)
-        - "read_list" (leer qué productos hay apuntados en la lista)
-        - "read_stock" (preguntar por el stock/inventario de un producto en la tienda)
-        - "check_availability" (comprobar si los productos de mi lista están disponibles en la tienda)
-        - "clear" (vaciar toda la lista de la compra)
-        - "start_mapping" (iniciar modo de mapeo/auditoría con la cámara)
-        - "stop_mapping" (detener el modo de mapeo)
-        - "chat" (saludos, insultos, preguntas sobre ti o charla general)
-        - "unknown" (ruido sin sentido)
-
-        Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta:
-        {{"intent": "valor", "quantity": numero_entero, "item": "nombre_del_producto", "reply": "respuesta conversacional"}}
-        
-        Reglas estrictas:
-        1. Si la intención es "chat", en el campo "reply" debes escribir una respuesta amigable, muy breve y natural en español (máximo 2 frases).
-        2. Si la intención NO es "chat", el campo "reply" debe ser null.
-        3. Si no hay un producto claro, "item" es null. Si no especifica cantidad, "quantity" es 1.
-
-        Petición del usuario: "{raw_text}"
-        """
-
+        frame_bytes = self.data_stream.get('frame')
+        if frame_bytes:
+            files_payload = {"image_file": ("frame.jpg", frame_bytes, "image/jpeg")}
+        else:
+            # 🖼️ EL PARCHE: Creamos un mini cuadrado negro para que la UAB no se queje
+            img = Image.new('RGB', (10, 10), color='black')
+            img_io = io.BytesIO()
+            img.save(img_io, format='JPEG')
+            files_payload = {"image_file": ("dummy.jpg", img_io.getvalue(), "image/jpeg")}
+            
         try:
-            respuesta = self.nlp_model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json"
-                )
+            response = requests.post(self.cloud_brain_url, data=data_payload, files=files_payload)
+            response.raise_for_status()
+            
+            datos = response.json()
+            print(f"[{self.name}] 🧠 Respuesta de la Nube: {datos}")
+            
+            return (
+                datos.get("intent", "unknown"),
+                datos.get("producto_detectado", None),
+                1, 
+                datos.get("texto", None)
             )
-            
-            datos = json.loads(respuesta.text)
-            print(f"[{self.name}] Gemini entendió: {datos}")
-            
-            intent = datos.get("intent", "unknown")
-            item = datos.get("item", None)
-            reply = datos.get("reply", None)
-            
-            try:
-                quantity = int(datos.get("quantity", 1))
-            except (ValueError, TypeError):
-                quantity = 1
-                
-            return intent, item, quantity, reply
-
         except Exception as e:
-            print(f"[{self.name}] ERROR en Gemini NLP: {e}")
-            return "unknown", None, None, None            
+            print(f"[{self.name}] 🔴 Error conectando al Cerebro Cloud: {e}")
+            return "unknown", None, 1, "He perdido la conexión con mis servidores centrales."
 
+    # Mantenemos STT y TTS porque usan la API directa (es ligero para la Raspberry)
     def speech_to_text(self, audio_data):
         audio_wav = audio_data.get_wav_data()
         audio_b64 = base64.b64encode(audio_wav).decode("utf-8")
@@ -135,8 +113,7 @@ class HRI(BaseModule):
         }
         try:
             response = requests.post(endpoint_url, json=payload)
-            response_json = response.json()
-            if "results" in response_json: return response_json["results"][0]["alternatives"][0]["transcript"].lower().strip()
+            if "results" in response.json(): return response.json()["results"][0]["alternatives"][0]["transcript"].lower().strip()
         except Exception as e: print(f"SST Connection error: {e}")
         return None
     
@@ -149,8 +126,7 @@ class HRI(BaseModule):
         }
         try:
             response = requests.post(endpoint_url, json=payload)
-            response_json = response.json()
-            if "audioContent" in response_json: return base64.b64decode(response_json["audioContent"])
+            if "audioContent" in response.json(): return base64.b64decode(response.json()["audioContent"])
         except Exception as e: print(f"TTS Petition error: {e}")
         return None
     
@@ -160,27 +136,21 @@ class HRI(BaseModule):
             self.ultimo_cambio_emocion = time.time()
 
     def renderizar_ojos(self):
-        if not self.ojo_izq or not self.ojo_der:
-            return 
-
+        if not self.ojo_izq or not self.ojo_der: return 
         canvas_izq = Image.new("1", (128, 64))
         canvas_der = Image.new("1", (128, 64))
-        
         draw_izq = ImageDraw.Draw(canvas_izq)
         draw_der = ImageDraw.Draw(canvas_der)
 
         if self.emocion_actual == "neutral":
             draw_izq.rectangle([34, 24, 94, 40], fill="white")
             draw_der.rectangle([34, 24, 94, 40], fill="white")
-            
         elif self.emocion_actual == "feliz":
             draw_izq.chord([34, 20, 94, 50], start=180, end=360, fill="white")
             draw_der.chord([34, 20, 94, 50], start=180, end=360, fill="white")
-            
         elif self.emocion_actual == "confuso":
             draw_izq.ellipse([44, 12, 84, 52], fill="white")
             draw_der.rectangle([34, 28, 94, 36], fill="white")
-            
         elif self.emocion_actual == "enfadado":
             draw_izq.rectangle([34, 24, 94, 40], fill="white")
             draw_der.rectangle([34, 24, 94, 40], fill="white")
@@ -200,7 +170,8 @@ class HRI(BaseModule):
         
         print(f"{INDENT_OUTPUT}[{self.name}] Usuario dice: \"{raw_text}\"")
         
-        intent, item, quantity, reply = self.parse_intent(raw_text)
+        # 🔄 Disparamos a la NUBE en lugar de usar procesamiento local
+        intent, item, quantity, reply = self.query_cloud_brain(raw_text)
 
         if intent == "chat" and reply:
             print(f"{INDENT_OUTPUT}[{self.name}] Charla detectada. Respondiendo...")
@@ -209,9 +180,9 @@ class HRI(BaseModule):
             return
 
         elif intent == "unknown":
-            print(f"{INDENT_OUTPUT}[{self.name}] Orden desconocida.")
+            print(f"{INDENT_OUTPUT}[{self.name}] Orden desconocida o error en la nube.")
             self.set_emocion("confuso")
-            self.speak("Perdona, no he entendido eso. ¿Me lo repites?")
+            self.speak(reply if reply else "No te he entendido bien.")
             return
     
         else:
@@ -239,14 +210,12 @@ class HRI(BaseModule):
             self.set_emocion("neutral")
 
 # =======================================================================================
-# A PARTIR DE AQUÍ EL CÓDIGO ESTÁ TOTALMENTE PEGADO A LA IZQUIERDA (FUERA DE LA CLASE)
+# ZONA DE TEST
 # =======================================================================================
 
 if __name__ == "__main__":
-    import os
-    
     print("\n" + "="*50)
-    print(" 🧪 INICIANDO TEST AISLADO DEL MÓDULO HRI 🧪")
+    print(" ☁️ INICIANDO TEST DEL CLIENTE LIGERO HRI ☁️")
     print("="*50)
 
     class MockEventBus:
@@ -258,35 +227,29 @@ if __name__ == "__main__":
     mock_bus = MockEventBus()
     mock_stream = {"audio": None, "frame": None}
 
-    # ¡No olvides cambiar las APIs si no las tienes en el .env!
+    # Tu clave original de Google Cloud para el Speech-to-Text
     API_KEY_GOOGLE = "AIzaSyCMV4L39MGvadx6XLsm_99Comj4sZ5EUn4"
-    API_KEY_GEMINI = "AIzaSyBTwgytXG3GUqNVhnc3r9Z_BMWI6E-YURM"
 
-    print("\n[!] Encendiendo el módulo HRI en modo laboratorio...")
+    print("\n[!] Encendiendo el módulo HRI (Cliente)...")
     hri_test = HRI(
         name="HRI_Test",
         event_bus=mock_bus,
         shared_sensor_stream=mock_stream,
-        stt_tts_api_key=API_KEY_GOOGLE,
-        gemini_api_key=API_KEY_GEMINI
+        stt_tts_api_key=API_KEY_GOOGLE
     )
 
-    print("\n--- PRUEBA DE ESTRÉS DEL NLP (Traductor de Intenciones) ---")
+    print("\n--- PRUEBA DE CONEXIÓN CON TU NUBE DE GOOGLE RUN ---")
     
     frases_prueba = [
-        "Cartón, mete tres cartones de leche entera por favor.",
-        "Uy me he equivocado, saca los macarrones de la lista.",
-        "Borra todo lo que te he dicho, empezamos de cero.",
-        "Hola maquinita, ¿qué tal estás hoy? ¿te pagan bien?",
-        "asdfghjkl", 
-        "Inicia el modo de mapeo nocturno" 
+        "¿Cuánto cuesta apple?",
+        "Hola maquinita, ¿qué tal estás hoy?"
     ]
 
     for frase in frases_prueba:
         print(f"\n🗣️ Humano dice: '{frase}'")
-        intent, item, quantity, reply = hri_test.parse_intent(frase)
+        intent, item, quantity, reply = hri_test.query_cloud_brain(frase)
         
-        print(f"🤖 El cerebro de Cart-ON devuelve:")
+        print(f"🤖 Tu servidor en Madrid devuelve:")
         print(f"   - Intención : {intent}")
         print(f"   - Producto  : {item}")
         print(f"   - Cantidad  : {quantity}")
