@@ -4,14 +4,15 @@ from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid
 
+
 class ROSBridge(Node):
 
     def __init__(self):
 
         super().__init__("carton_bridge")
 
-        self.scan = None
-        self.map = None
+        self.latest_scan = None
+        self.latest_map = None
 
         self.create_subscription(
             LaserScan,
@@ -28,7 +29,10 @@ class ROSBridge(Node):
         )
 
     def scan_callback(self,msg):
-        self.scan = msg
+        self.latest_scan = msg
+        print(f"[ROSBridge] LaserScan recibido: {len(msg.ranges)} puntos")
+        #print(f"[ROSBridge] {msg.ranges}")
 
     def map_callback(self,msg):
-        self.map = msg
+        self.latest_map = msg
+        print(f"[ROSBridge] Map recibido: {msg.info.width} x {msg.info.height}")

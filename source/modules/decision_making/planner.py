@@ -10,6 +10,10 @@ class Planner(BaseModule):
         super().__init__("Planner", event_bus)
         self.modules = {}
     
+    def append_single_module(self, module):
+        if module not in self.modules:
+            self.modules[module.name] = module
+
     def append_modules(self, modules):
          print(f"[{self.name}] Appending modules...")
          for m in modules:

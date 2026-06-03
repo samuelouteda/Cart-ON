@@ -2,3 +2,13 @@ SpeechRecognition
 requests
 python-dotenv
 pygame
+google-generativeai
+luma.oled
+vosk
+mysql-connector-python
+Pillow
+PyAudio
+numpy
+opencv-python
+PyYAML
+setuptools
