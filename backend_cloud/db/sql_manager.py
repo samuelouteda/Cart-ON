@@ -38,13 +38,25 @@ class SQLManager:
                 
         return None
     
+    def get_classroom_location(self, nombre_aula):
+        query = "SELECT latitud, longitud FROM aulas_uab WHERE nombre_aula LIKE %s"
+        # Usamos LIKE con % para que si el usuario dice "Q300", encuentre "Q3/000" si es similar (ajusta según tu BD)
+        self.cursor.execute(query, (f"%{nombre_aula}%",))
+        return self.cursor.fetchone()
+    
     def get_school_info(self, asignatura: str = None, grupo: str = None, hora: str = None):
         try:
             conn = self.get_connection()
             if not conn: return []
             cursor = conn.cursor(dictionary=True)
             
-            query = "SELECT * FROM horarios_uab WHERE 1=1"
+            # Juntamos la tabla de horarios con la de aulas usando el nombre del aula
+            query = """
+                SELECT h.*, a.latitud, a.longitud 
+                FROM horarios_uab h
+                LEFT JOIN aulas_uab a ON h.aula = a.nombre_aula
+                WHERE 1=1
+            """
             params = []
             
             if asignatura and asignatura != "producto desconocido":

@@ -5,6 +5,20 @@ import os
 import base64
 import tempfile
 import speech_recognition as sr
+import json
+from modules.actuation.display import Display
+from modules.actuation.maps_helper import generate_location_image
+
+# Importamos Vosk para el Wake Word Offline
+import vosk
+import pyaudio
+
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+import pygame
+
+from core.base_module import BaseModule
+from core.event import Event
+from core.constants import INDENT_OUTPUT
 
 from modules.actuation.display import Display
 
@@ -23,20 +37,21 @@ class HRI(BaseModule):
         self.api_key = api_key
         self.cloud_url = "https://cart-on-api-225606614592.europe-southwest1.run.app/api/v1/interaccion"
         
+        self.puedo_escuchar = threading.Event()
+        self.puedo_escuchar.set()
+        
+        # INICIALIZAMOS LA PANTALLA
         self.display = Display("Display", event_bus, shared_data={})
         
-        # 🚥 SEMÁFORO: Controla cuándo podemos usar el teclado
-        self.puedo_escuchar = threading.Event()
-        self.puedo_escuchar.set() # Empezamos con luz verde
-        
-        # 🔊 Calentamos el motor de audio en el arranque
         try:
             pygame.mixer.init()
             print(f"{INDENT_OUTPUT}[{self.name}] 🔊 Motor de audio pre-cargado y listo.")
         except Exception as e:
             print(f"{INDENT_OUTPUT}[{self.name}] 🔴 Aviso: No se pudo iniciar el audio: {e}")
         
-        # Arrancamos el hilo del micrófono real
+        # Ocultar los logs molestos de Vosk en la terminal
+        vosk.SetLogLevel(-1)
+        
         threading.Thread(target=self._escuchar_microfono, daemon=True).start()
 
     def handle_task(self, task):
@@ -63,26 +78,32 @@ class HRI(BaseModule):
             
         elif task.type == "SPEAK":
             # Extraemos el paquete que viene de la nube
+  
             datos_nube = task.data
             texto = datos_nube.get("texto", "Error en la respuesta")
             audio_b64 = datos_nube.get("audio_b64", None)
+            aula_recibida = datos_nube.get("aula", None) # 📍 Leemos el aula de la nube
 
-            comando = datos_nube.get("comando_robot", "NONE")
-            fase = datos_nube.get("estado_actual", "fase_2_interaccion")
+            print(f"\n{INDENT_OUTPUT}🤖 [Cart-ON Dice]: {texto}\n")
+            
+            # --- MAGIA MULTIMEDIA: GENERAMOS MAPA SI HAY AULA ---
+            aula_recibida = datos_nube.get("aula", None)
+            lat_recibida = datos_nube.get("lat", None)
+            lng_recibida = datos_nube.get("lng", None)
+
+            imagen_mapa = None
+            # Si nos llega el aula y además tiene coordenadas en la BD
+            if aula_recibida and lat_recibida and lng_recibida:
+                maps_key = os.getenv("MAPS_API_KEY")
+                imagen_mapa = generate_location_image(aula_recibida, lat_recibida, lng_recibida, maps_key)
             
             self.display.update_data(
-                        status="SUCCESS", 
-                        title="Respuesta Recibida", 
-                        robot_text=texto, 
-                        data_dict={
-                            "Comando activo": comando, 
-                            "Fase actual": fase,
-                            "Motor Audio": "Reproduciendo MP3..."
-                        },
-                        footer="Procesado en el Cloud & Local Edge"
-                    )
-            self.display.refresh()
-
+                status="SPEAKING", 
+                title=f"Ruta a {aula_recibida}" if aula_recibida else "Respuesta Asistente",
+                robot_text=texto,
+                image=imagen_mapa
+            )
+            
             print(f"\n{INDENT_OUTPUT}🤖 [Cart-ON Dice]: {texto}\n")
             
             # Si la nube nos ha mandado un audio, lo reproducimos
@@ -125,50 +146,86 @@ class HRI(BaseModule):
             return {"status": "error", "texto": "Perdona, mis antenas no conectan con internet."}
 
     def _escuchar_microfono(self):
-        # Inicializamos el reconocedor y el micrófono
-        recognizer = sr.Recognizer()
-        mic = sr.Microphone()
+        recognizer_google = sr.Recognizer()
+        
+        # Cargamos el modelo local de Vosk
+        ruta_modelo = os.path.join(os.path.dirname(__file__), "model_vosk")
+        if not os.path.exists(ruta_modelo):
+            print(f"{INDENT_OUTPUT}[{self.name}] 🔴 ERROR: No encuentro la carpeta 'modelo_vosk'.")
+            return
 
-        print(f"{INDENT_OUTPUT}[{self.name}] 🎤 Calibrando micrófono (ruido ambiente)...")
-        with mic as source:
-            recognizer.adjust_for_ambient_noise(source, duration=2)
-        print(f"{INDENT_OUTPUT}[{self.name}] ✅ Micrófono calibrado y listo.")
+        modelo = vosk.Model(ruta_modelo)
+        recognizer_vosk = vosk.KaldiRecognizer(modelo, 16000)
+        pa = pyaudio.PyAudio()
 
-        time.sleep(1)
+        # 🧠 VARIABLE CLAVE: Controla si obligamos a decir la Wake Word
+        necesita_despertar = True 
+
         while self.running:
-            # Esperamos silenciosamente a que el semáforo esté en verde (que el robot no esté hablando)
             self.puedo_escuchar.wait() 
+            
+            # --- FASE 1: ESPERAR LA WAKE WORD (Solo si viene de reposo) ---
+            if necesita_despertar:
+                print(f"\n{INDENT_OUTPUT}💤 Cart-ON en reposo. Di 'Cartón' para despertarlo...")
+                
+                stream = pa.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=8000)
+                stream.start_stream()
+                
+                wake_word_detectada = False
+                while self.running and not wake_word_detectada:
+                    if not self.puedo_escuchar.is_set():
+                        time.sleep(0.1)
+                        continue
 
+                    data = stream.read(4000, exception_on_overflow=False)
+                    if recognizer_vosk.AcceptWaveform(data):
+                        resultado = json.loads(recognizer_vosk.Result())
+                        texto_detectado = resultado.get("text", "").lower()
+                        
+                        if "cartón" in texto_detectado or "carton" in texto_detectado or "carto" in texto_detectado:
+                            print(f"\n{INDENT_OUTPUT}🔔 ¡Wake Word ('Cart-ON') Detectada!")
+                            wake_word_detectada = True
+
+                stream.stop_stream()
+                stream.close()
+                # 🔓 Abrimos la conversación. Ya no necesita despertarse.
+                necesita_despertar = False
+
+            if not self.running: break
+            
+            # --- FASE 2: CONVERSACIÓN CONTINUA (10s de gracia) ---
             try:
-                with mic as source:
-                    print(f"\n{INDENT_OUTPUT}🟢 Te escucho... (Habla ahora o di 'salir')")
-                    # Escucha hasta que dejas de hablar
-                    audio = recognizer.listen(source, timeout=None, phrase_time_limit=10)
+                with sr.Microphone() as source:
+                    print(f"{INDENT_OUTPUT}🟢 Te escucho... (Tienes 10s para hablar)")
+                    # timeout=10: Si pasan 10 segundos en silencio, explota con WaitTimeoutError
+                    audio = recognizer_google.listen(source, timeout=10, phrase_time_limit=10)
 
-                # 🔴 Ponemos el semáforo en rojo para que no nos escuche mientras procesa
                 self.puedo_escuchar.clear()
-
                 print(f"{INDENT_OUTPUT}⏳ Traduciendo tu voz a texto...")
-                # Traducimos usando el motor gratuito de Google en español
-                texto = recognizer.recognize_google(audio, language="es-ES")
+                
+                texto = recognizer_google.recognize_google(audio, language="es-ES")
                 print(f"{INDENT_OUTPUT}🗣️ Has dicho: '{texto}'")
 
                 if texto.lower() == 'salir':
                     self.publish_event(Event(origin=self.name, type="SHUTDOWN"))
                     break
                 elif texto.strip():
-                    # Disparamos el evento al orquestador
                     self.publish_event(Event(origin=self.name, type="VOICE_DETECTED", data=texto))
-
+                    # IMPORTANTE: NO ponemos necesita_despertar = True aquí. 
+                    # Así, cuando el robot termine de hablar, saltará directo a escuchar de nuevo.
+                    
+            except sr.WaitTimeoutError:
+                # ⏰ Han pasado 10 segundos en absoluto silencio.
+                print(f"{INDENT_OUTPUT}🥱 10 segundos de inactividad. Vuelvo a dormir zZz...")
+                necesita_despertar = True # Ahora SÍ le obligamos a usar la wake word en la siguiente vuelta.
             except sr.UnknownValueError:
-                print(f"{INDENT_OUTPUT}🤷 No te he entendido bien por el ruido. Volviendo a escuchar...")
-                self.puedo_escuchar.set() # Volvemos a dar luz verde
-            except sr.RequestError as e:
-                print(f"{INDENT_OUTPUT}🔴 Error de conexión con el servicio de voz: {e}")
-                self.puedo_escuchar.set()
+                print(f"{INDENT_OUTPUT}🤷 No te he entendido bien. Inténtalo de nuevo...")
+                # Le damos otra oportunidad de hablar sin obligarle a decir la wake word
+                self.puedo_escuchar.set() 
             except Exception as e:
                 if self.running:
-                    print(f"{INDENT_OUTPUT}🔴 Error inesperado en el micro: {e}")
+                    print(f"{INDENT_OUTPUT}🔴 Error en el micro: {e}")
+                    necesita_despertar = True
                     self.puedo_escuchar.set()
         
     def loop(self):
