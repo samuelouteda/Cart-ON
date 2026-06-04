@@ -37,3 +37,45 @@ class SQLManager:
                 return producto
                 
         return None
+    
+    def get_school_info(self, asignatura: str = None, grupo: str = None, hora: str = None):
+        try:
+            conn = self.get_connection()
+            if not conn: return []
+            cursor = conn.cursor(dictionary=True)
+            
+            query = "SELECT * FROM horarios_uab WHERE 1=1"
+            params = []
+            
+            if asignatura and asignatura != "producto desconocido":
+                # Rompemos la asignatura en palabras (ej. "vision", "computador")
+                palabras = asignatura.lower().split()
+                # Quitamos palabras comunes que no aportan (stop words)
+                palabras_clave = [p for p in palabras if p not in ["de", "por", "para", "la", "el", "los", "las"]]
+                
+                # Construimos un filtro flexible: debe coincidir AL MENOS UNA palabra clave principal
+                # Usamos la primera palabra importante (ej. "vision")
+                if palabras_clave:
+                    raiz = palabras_clave[0]
+                    # Quitamos acentos de la búsqueda
+                    raiz = raiz.replace('ó', 'o').replace('í', 'i')
+                    query += " AND LOWER(asignatura) LIKE %s"
+                    params.append(f"%{raiz}%")
+                
+            if grupo:
+                query += " AND grupo = %s"
+                params.append(grupo)
+                
+            if hora:
+                query += " AND hora_inicio LIKE %s"
+                params.append(f"{hora}%")
+                
+            cursor.execute(query, tuple(params))
+            resultados = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+            return resultados
+        except Exception as e:
+            print(f"[SQLManager] 🔴 Error consultando UAB: {e}")
+            return []

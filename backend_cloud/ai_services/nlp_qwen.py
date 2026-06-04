@@ -1,7 +1,8 @@
 # ai_services/nlp_qwen.py
 import json
 from openai import OpenAI
-from core.prompts import PROMPT_NLP
+import json
+from core.prompts import PROMPT_SUPERMERCADO, PROMPT_ESCUELA
 from core.config import Config
 
 class NLPQwen:
@@ -13,8 +14,46 @@ class NLPQwen:
         except Exception as e:
             print(f"[NLPQwen] 🔴 Error: {e}")
             self.client = None
+    
+    def parse_intent(self, text: str, modo: str = "supermercado"):
+        # Elegimos la personalidad
+        sistema_actual = PROMPT_SUPERMERCADO if modo == "supermercado" else PROMPT_ESCUELA
+        
+        try:
+            response = self.client.chat.completions.create(
+                model="Modelo-bXs2", # O el que estés usando en UAB
+                messages=[
+                    {"role": "system", "content": sistema_actual},
+                    {"role": "user", "content": text}
+                ],
+                temperature=0.1
+            )
+            raw_text = response.choices[0].message.content.strip()
+            
+            # Limpieza del bloque de código JSON (por si Qwen devuelve ```json ... ```)
+            if "```" in raw_text:
+                raw_text = raw_text.split("```")[1].strip()
+                if raw_text.startswith("json"):
+                    raw_text = raw_text[4:].strip()
+                    
+            data = json.loads(raw_text)
+            
+            # Extracción segura: usamos .get() por si un JSON no tiene una clave concreta
+            intent = data.get("intent", "unknown")
+            item = data.get("item", None)
+            quantity = data.get("quantity", 1)
+            group = data.get("group", None)
+            time_val = data.get("time", None) # Nuevo campo
+            reply = data.get("reply", None)
+            
+            # Ahora devolvemos 6 variables
+            return intent, item, quantity, group, time_val, reply
 
-    def parse_intent(self, raw_text: str):
+
+        except Exception as e:
+            print(f"Error en NLP: {e}")
+            return "unknown", None, 1, None, "Fallo al procesar."
+
         if not self.client:
             return "unknown", None, 1, "Mis sistemas lógicos están apagados."
 
