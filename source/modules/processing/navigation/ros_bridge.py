@@ -3,6 +3,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import Odometry
 
 
 class ROSBridge(Node):
@@ -25,6 +26,12 @@ class ROSBridge(Node):
             OccupancyGrid,
             "/map",
             self.map_callback,
+            10
+        )
+
+        self.odom_pub = self.create_publisher(
+            Odometry,
+            "/odom",
             10
         )
 
