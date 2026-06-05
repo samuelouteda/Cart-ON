@@ -69,7 +69,7 @@ String buffer = "";
 void processCommand(String cmd) {
   Serial.print("RECIBIDO: ");
   Serial.println(cmd);
-  
+
   cmd.trim();
 
   if (!cmd.startsWith("CMD,")) {
@@ -80,13 +80,19 @@ void processCommand(String cmd) {
   cmd.remove(0, 4);
 
   int first = cmd.indexOf(',');
-  String action = cmd;
+  String action = "";
   int speed = 250;
 
   if (first != -1) {
     action = cmd.substring(0, first);
-    speed = cmd.substring(first + 1).toInt();
+    String speedStr = cmd.substring(first + 1);
+    speedStr.trim();
+    speed = speedStr.toInt();
+  } else {
+    action = cmd; // Por si se envía sin velocidad
   }
+
+  action.trim(); // Asegura que "STOP" no sea "STOP " o "STOP\r"
 
   if (action == "AVANZA") {
     avanzar(speed);
@@ -103,6 +109,11 @@ void processCommand(String cmd) {
   else if (action == "STOP") {
     parar();
     Serial.println("ACK,STOP");
+  }
+  else {
+    // Avisar en la terminal si llegó algo deformado
+    Serial.print("ERROR,COMANDO_DESCONOCIDO:");
+    Serial.println(action);
   }
 }
 
@@ -131,7 +142,7 @@ void setup() {
 void loop() {
 
   // --- SERIAL COMMANDS ---
-  if (Serial.available()) {
+  if (Serial.available() > 0) {
     buffer = Serial.readStringUntil('\n');
     processCommand(buffer);
   }
