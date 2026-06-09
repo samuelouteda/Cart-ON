@@ -20,25 +20,22 @@ class ROSModule(BaseModule):
         
         # Configuració del comptador de mapes
         self.scan_counter = 0
-        self.MAX_SCANS = 100  # <--- Canvia aquest número pel llibre de punts/scans que vulguis recollir
+        self.MAX_SCANS = 400  
         self.map_saved = False
 
     def run(self):
-        print(f"[{self.name}] 1. Engegant node físic del LiDAR C1...")
+        print(f"[{self.name}] 1. Engegant node físic del LiDAR C1 en /dev/ttyUSB0...")
         self.lidar_process = subprocess.Popen([
-            "ros2", "run", "sllidar_ros2", "sllidar_node",
-            "--ros-args", "-p", "serial_port:=/dev/ttyUSB1", "-p", "baud_rate:=460800"
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            "ros2", "launch", "sllidar_ros2", "sllidar_c1_launch.py",
+            "serial_port:=/dev/ttyUSB0"
+        ])
 
-        # Donem 2 segons perquè el LiDAR arrenqui abans de demanar-li el SLAM
         time.sleep(2)
 
         print(f"[{self.name}] 2. Engegant el paquet slam_toolbox...")
-        # Nota: Fem servir el llançament síncron online estàndard de slam_toolbox
-        self.lidar_process = subprocess.Popen([
-            "ros2", "run", "sllidar_ros2", "sllidar_node",
-            "--ros-args", "-p", "serial_port:=/dev/ttyUSB1", "-p", "baud_rate:=460800"  # <--- Canviat a ttyUSB1
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.slam_process = subprocess.Popen([
+            "ros2", "launch", "slam_toolbox", "online_sync_launch.py"
+        ])
 
         # Arrenquem el pont de Python cap a ROS2
         self.bridge = ROSBridge()
@@ -49,46 +46,50 @@ class ROSModule(BaseModule):
 
     def loop(self):
         if self.bridge and self.executor and not self.map_saved:
-            self.executor.spin_once(timeout_sec=0.05)
+            self.executor.spin_once(timeout_sec=0)
 
-            # Si el bridge ha rebut dades noves del làser
             if self.bridge.latest_scan:
                 self.shared_data["scan"] = self.bridge.latest_scan
                 self.scan_counter += 1
-                print(f"[{self.name}] Scan rebut ({self.scan_counter}/{self.MAX_SCANS})")
-                
-                # Resetejem la marca de scan capturat al bridge per esperar el següent
+                if self.scan_counter % 20 == 0:  
+                    print(f"[{self.name}] Mapejant... ({self.scan_counter}/{self.MAX_SCANS})")
                 self.bridge.latest_scan = None 
 
-            # QUAN ARRIBEM AL NÚMERO X DE PUNTS -> GENEREM I GUARDEM EL MAPA
             if self.scan_counter >= self.MAX_SCANS:
                 self.guardar_mapa_i_tancar()
 
+        time.sleep(0.01)
+
     def guardar_mapa_i_tancar(self):
-        print(f"[{self.name}] target de {self.MAX_SCANS} scans assolit! Generant mapa...")
-        self.map_saved = True
-        
-        # Definim on es guardarà el mapa (a la teva carpeta source/maps)
-        # Recomano fer servir la ruta absoluta del teu sistema
-        ruta_mapa = os.path.expanduser("~/Cart-ON/source/maps/mapa_carton")
-        
-        print(f"[{self.name}] Executant nav2_map_server per salvar el mapa a: {ruta_mapa}")
-        
-        # Comanda oficial de ROS2 per congelar el mapa actual del slam_toolbox
-        subprocess.run([
-            "ros2", "run", "nav2_map_server", "map_saver_cli", "-f", ruta_mapa
-        ])
-        
-        print(f"[{self.name}] Mapa guardat correctament! Aturant sistemes...")
-        self.shutdown_nodes()
+            print(f"[{self.name}] Target de {self.MAX_SCANS} scans assolit! Generant mapa...")
+            self.map_saved = True
+            
+            # Donem un parell de segons perquè el SLAM s'estabilitzi abans de demanar el mapa
+            time.sleep(2)
+            
+            ruta_mapa = os.path.expanduser("~/Cart-ON/source/maps/mapa_carton")
+            print(f"[{self.name}] Executant nav2_map_server per salvar el mapa a: {ruta_mapa}")
+            
+            # Executem amb el paràmetre de ROS correcte: save_map_timeout:=10.0
+            resultado = subprocess.run([
+                "ros2", "run", "nav2_map_server", "map_saver_cli", "-f", ruta_mapa,
+                "--ros-args", 
+                "-p", "map_subscribe_transient_local:=true", 
+                "-p", "save_map_timeout:=10.0"
+            ])
+            
+            if resultado.returncode == 0:
+                print(f"[{self.name}] 🥳 ¡MAPA GUARDAT AMB ÈXIT! Aturant sistemes...")
+            else:
+                print(f"[{self.name}] ❌ ERROR: El map_saver ha fallat de nou.")
+                
+            self.shutdown_nodes()
 
     def shutdown_nodes(self):
-        # Desconnectem ROS2
         if self.bridge:
             self.executor.remove_node(self.bridge)
             self.bridge.destroy_node()
             
-        # Matem els processos de la terminal per deixar el sistema net
         if self.slam_process:
             self.slam_process.terminate()
             self.slam_process.wait()
@@ -97,4 +98,4 @@ class ROSModule(BaseModule):
             self.lidar_process.wait()
             
         print(f"[{self.name}] Tot apagat de manera neta. Procés finalitzat.")
-        exit(0) # Tanquem el main.py automàticament
+        exit(0)
