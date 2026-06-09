@@ -75,7 +75,15 @@ class Planner(BaseModule):
             )
 
         while self.running:
+            try:
+                task = self.task_queue.get_nowait()
+                self.handle_task(task)
+            except:
+                pass
 
             self.loop()
+
+            import time
+            time.sleep(0.01)
 
             

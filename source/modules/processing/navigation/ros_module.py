@@ -20,26 +20,34 @@ class ROSModule(BaseModule):
         )
 
         self.shared_data = shared_data
+        self.bridge = None
 
+    def run(self):
         rclpy.init()
-
         self.bridge = ROSBridge()
+        
+        super().run()
+        
+        if self.bridge:
+            self.bridge.destroy_node()
+        rclpy.shutdown()
 
     def loop(self):
-
-        rclpy.spin_once(
-            self.bridge,
-            timeout_sec=0.01
-        )
-
-        if self.bridge.latest_scan:
-
-            self.shared_data["scan"] = (
-                self.bridge.latest_scan
+        
+        if self.bridge:
+            rclpy.spin_once(
+                self.bridge,
+                timeout_sec=0
             )
 
-        if self.bridge.latest_map:
+            if self.bridge.latest_scan:
 
-            self.shared_data["map"] = (
-                self.bridge.latest_map
-            )
+                self.shared_data["scan"] = (
+                    self.bridge.latest_scan
+                )
+
+            if self.bridge.latest_map:
+
+                self.shared_data["map"] = (
+                    self.bridge.latest_map
+                )
