@@ -22,7 +22,7 @@ class ROSBridge(Node):
         self.odom_pub = self.create_publisher(Odometry, "/odom", 10)
 
         # 2. Control directe del Maquinari del LiDAR C1
-        self.PORT_NAME = '/dev/ttyUSB0'
+        self.PORT_NAME = '/dev/ttyUSB1'
         self.BAUDRATE = 460800
         self.lidar = None
         self.is_running = False
