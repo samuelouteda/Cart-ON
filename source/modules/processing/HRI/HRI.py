@@ -168,7 +168,7 @@ class HRI(BaseModule):
             if necesita_despertar:
                 print(f"\n{INDENT_OUTPUT}💤 Cart-ON en reposo. Di 'Cartón' para despertarlo...")
                 
-                stream = pa.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=8000)
+                stream = pa.open(format=pyaudio.paInt16, channels=1, rate=48000, input=True, frames_per_buffer=8000)
                 stream.start_stream()
                 
                 wake_word_detectada = False
