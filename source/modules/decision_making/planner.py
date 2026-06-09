@@ -67,12 +67,13 @@ class Planner(BaseModule):
         print(f"[{self.name}] Started.")
 
         print(f"[{self.name}] Brain Online. Waiting for events...")
-        self.modules["HRI"].add_task(
-                Task(
-                        type="speak",
-                        data="Cerebro en línea. Esperando por eventos..."
+        if "HRI" in self.modules:
+            self.modules["HRI"].add_task(
+                    Task(
+                            type="speak",
+                            data="Cerebro en línea. Esperando por eventos..."
+                    )
                 )
-            )
 
         while self.running:
             try:
