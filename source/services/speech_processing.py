@@ -60,7 +60,10 @@ def text_to_speech(text_to_say, api_key):
     payload = {
         "input": {"text": text_to_say},
         "voice": {"languageCode": "es-ES", "name": "es-ES-Neural2-F"},
-        "audioConfig": {"audioEncoding": "MP3"}
+        "audioConfig": {
+            "audioEncoding": "MP3",
+            "speakingRate": 3.0,  # habla más rápido de lo normal
+        }
     }
     
     try:

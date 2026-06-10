@@ -34,7 +34,9 @@ Devuelve ÚNICAMENTE un JSON válido:
 
 Reglas:
 1. BLOQUEO: Para "schedule_query" y "location_query", el campo "reply" DEBE SER EXACTAMENTE null.
-2. EXTRACCIÓN: Para "schedule_query", extrae la asignatura en "item". Para "location_query", extrae el nombre del aula (ej: "Q300", "Q4/0015") en "item".
+2. EXTRACCIÓN Y TRADUCCIÓN: Para "schedule_query", extrae la asignatura. ⚠️ ATENCIÓN: Las asignaturas en la base de datos están en CATALÁN. Si el usuario la pide en español, TRADÚCELA al catalán y quítale las tildes antes de ponerla en "item". Ejemplos: "visión por computador" -> "visio per computador", "sistemas operativos" -> "sistemes operatius". Si no menciona asignatura, pon null.
+3. AULAS: Para "location_query", extrae el nombre del aula (ej: "Q300", "Q4/0015") en "item".
+4. GRUPOS Y HORA: Extrae el grupo en "group" (ej: 420) y la hora en "time" (formato HH:MM). Si no hay, pon null.
 """
 
 PROMPT_VISION_ESTRICTO = """

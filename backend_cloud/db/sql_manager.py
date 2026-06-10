@@ -1,10 +1,26 @@
-# db/sql_manager.py
-# (Asegúrate de importar tu librería de conexión real: psycopg2, pymysql o sqlalchemy)
+import os
+import mysql.connector
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class SQLManager:
     def __init__(self):
         print("[SQLManager] 🗄️ Gestor de Base de Datos inicializado.")
-        # Aquí inicializarías tu conexión real a Google Cloud SQL
+
+    def get_connection(self):
+        """Crea y devuelve una nueva conexión a la base de datos."""
+        try:
+            conn = mysql.connector.connect(
+                host=os.getenv("DB_HOST", "localhost"),
+                user=os.getenv("DB_USER", "marco-mejias"),
+                password=os.getenv("DB_PASSWORD", "cart-on-Fortnite67"),
+                database=os.getenv("DB_NAME", "carton_db") # ⚠️ 
+            )
+            return conn
+        except Exception as e:
+            print(f"[SQLManager] 🔴 Error conectando a MySQL: {e}")
+            return None
 
     def get_product_info(self, item_name: str):
         """
@@ -14,11 +30,7 @@ class SQLManager:
         if not item_name:
             return None
             
-        # 1. Aseguramos que el término esté en minúsculas para comparar
         termino = item_name.lower()
-        
-        # ⚠️ AQUÍ VA TU LÓGICA SQL REAL. El concepto es usar LIKE con %:
-        # QUERY: SELECT * FROM productos WHERE LOWER(nombre_pantalla) LIKE '%platano%' OR LOWER(nombre_yolo) LIKE '%platano%'
         
         # --- SIMULACIÓN BASADA EN TU CAPTURA DE PANTALLA ---
         simulacion_bd = [
@@ -28,26 +40,35 @@ class SQLManager:
             {"nombre_yolo": "tomato", "nombre_pantalla": "Tomate Pera", "precio": 1.20, "stock_actual": 50}
         ]
         
-        # Buscamos si la palabra raíz está dentro de nombre_yolo o nombre_pantalla
         for producto in simulacion_bd:
-            # Quitamos tildes rápido para comparar de forma segura
             nombre_limpio = producto["nombre_pantalla"].lower().replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
-            
             if termino in nombre_limpio or termino in producto["nombre_yolo"].lower():
                 return producto
                 
         return None
     
     def get_classroom_location(self, nombre_aula):
-        query = "SELECT latitud, longitud FROM aulas_uab WHERE nombre_aula LIKE %s"
-        # Usamos LIKE con % para que si el usuario dice "Q300", encuentre "Q3/000" si es similar (ajusta según tu BD)
-        self.cursor.execute(query, (f"%{nombre_aula}%",))
-        return self.cursor.fetchone()
+        try:
+            conn = self.get_connection()
+            if not conn: return None
+            
+            cursor = conn.cursor(dictionary=True) 
+            query = "SELECT latitud, longitud FROM aulas_uab WHERE nombre_aula LIKE %s"
+            cursor.execute(query, (f"%{nombre_aula}%",))
+            resultado = cursor.fetchone()
+            
+            cursor.close()
+            conn.close()
+            return resultado
+        except Exception as e:
+            print(f"🔴 Error buscando el aula en SQL: {e}")
+            return None
     
     def get_school_info(self, asignatura: str = None, grupo: str = None, hora: str = None):
         try:
             conn = self.get_connection()
             if not conn: return []
+            
             cursor = conn.cursor(dictionary=True)
             
             # Juntamos la tabla de horarios con la de aulas usando el nombre del aula
@@ -60,16 +81,11 @@ class SQLManager:
             params = []
             
             if asignatura and asignatura != "producto desconocido":
-                # Rompemos la asignatura en palabras (ej. "vision", "computador")
                 palabras = asignatura.lower().split()
-                # Quitamos palabras comunes que no aportan (stop words)
                 palabras_clave = [p for p in palabras if p not in ["de", "por", "para", "la", "el", "los", "las"]]
                 
-                # Construimos un filtro flexible: debe coincidir AL MENOS UNA palabra clave principal
-                # Usamos la primera palabra importante (ej. "vision")
                 if palabras_clave:
                     raiz = palabras_clave[0]
-                    # Quitamos acentos de la búsqueda
                     raiz = raiz.replace('ó', 'o').replace('í', 'i')
                     query += " AND LOWER(asignatura) LIKE %s"
                     params.append(f"%{raiz}%")
