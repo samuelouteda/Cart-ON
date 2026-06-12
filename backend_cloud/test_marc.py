@@ -7,7 +7,6 @@ import cv2
 import numpy as np
 import sys
 from pathlib import Path
-import os
 
 # Fix de rutes per trobar 'core' i 'db'
 ruta_actual = str(Path(__file__).resolve().parent)
@@ -132,6 +131,4 @@ async def recibir_escaneo(data: Payload):
 
 if __name__ == "__main__":
     import uvicorn
-    # Pillamos el puerto dinámico de Cloud Run o usamos el 8080 por defecto
-    puerto = int(os.environ.get("PORT", 8080))
-    uvicorn.run("main:app", host="0.0.0.0", port=puerto)
+    uvicorn.run("test_cloud:app", host="0.0.0.0", port=8000, reload=True)

@@ -6,3 +6,6 @@ openai
 google-genai
 python-dotenv
 gTTS
+pydantic
+numpy
+opencv-python-headless
