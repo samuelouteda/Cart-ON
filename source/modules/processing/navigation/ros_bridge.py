@@ -2,7 +2,6 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid
-from nav_msgs.msg import Odometry
 from rclpy.qos import QoSProfile, qos_profile_sensor_data, ReliabilityPolicy, DurabilityPolicy
 
 class ROSBridge(Node):
@@ -24,15 +23,12 @@ class ROSBridge(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL
         )
-
         self.create_subscription(
             OccupancyGrid,
             "/map",
             self.map_callback,
             perfil_qos_mapa
         )
-
-        self.odom_pub = self.create_publisher(Odometry, "/odom", 10)
 
     def scan_callback(self, msg):
         self.latest_scan = msg

@@ -73,15 +73,15 @@ try:
         guardar_log(f"\n🔄 === INICIANDO CICLO NÚMERO {contador_vueltas} ===")
         
         guardar_log("Etapa 1: Avanzar")
-        enviar_comando("AVANZA", 150)
+        enviar_comando("AVANZA", 250)
         time.sleep(2)
         
-        guardar_log("Etapa 2: Girar")
-        enviar_comando("GIRO_DER", 150) 
-        time.sleep(2)
+        # guardar_log("Etapa 2: Girar")
+        # enviar_comando("GIRO_DER", 250) 
+        # time.sleep(2)
         
         guardar_log("Etapa 3: Atrás")
-        enviar_comando("ATRAS", 150)
+        enviar_comando("ATRAS", 250)
         time.sleep(2)
         
         guardar_log("Etapa 4: Parar y esperar")
