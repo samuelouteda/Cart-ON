@@ -1,9 +1,9 @@
 from core.base_module import BaseModule
 from core.event import Event
-
+from queue import Empty
 from time import sleep
 import speech_recognition as sr
-
+from core.constants import INDENT_OUTPUT
 
 class SensoryModule(BaseModule):
     """
@@ -21,12 +21,12 @@ class SensoryModule(BaseModule):
     def capture_audio(self):
         # modulo hardware que captura la entrada de audio del entorno
         with self.microphone as source:
-            # calibramos un segundo completo para evitar falsos positivos de ruido
-            self.recognizer.adjust_for_ambient_noise(source, duration=1)
             try:
                 # graba bloques de audio y se detiene si hay silencio
-                audio_data = self.recognizer.listen(source, timeout=None, phrase_time_limit=10)
+                audio_data = self.recognizer.listen(source, timeout=1, phrase_time_limit=10)
                 return audio_data
+            except sr.WaitTimeoutError:
+                return None
             except Exception:
                 return None
 
@@ -38,6 +38,10 @@ class SensoryModule(BaseModule):
 
         self.data_stream['audio'] = None
         self.data_stream['distance'] = 5
+
+        # calibramos un segundo completo para evitar falsos positivos de ruido
+        with self.microphone as source:
+            self.recognizer.adjust_for_ambient_noise(source, duration=1)
 
         self.publish_event(
                 Event(
@@ -57,6 +61,16 @@ class SensoryModule(BaseModule):
         )
 
         while self.running:
-            self.loop()
+            try:
+                task = self.task_queue.get_nowait()
+                if hasattr(task, 'type') and task.type == "shutdown":
+                    self.running = False
+                    break
+            except Empty:
+                pass
 
-            sleep(0.01)
+            if self.running:
+                self.loop()
+                sleep(0.01)
+
+        print(f"{INDENT_OUTPUT}[{self.name}] Stopped cleanly.")

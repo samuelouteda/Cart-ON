@@ -3,6 +3,7 @@ import os
 import time
 
 from core.event import Event
+from core.constants import INDENT_OUTPUT
 
 class Speaker:
     def __init__(self, name, event_bus, shared_data):
@@ -17,9 +18,10 @@ class Speaker:
         try:
             pygame.mixer.init()
             self.hardware_disponible = True
+            print(f"{INDENT_OUTPUT}[{self.name}] Motor de audio pre-cargado y listo.")
         except Exception as e:
             self.hardware_disponible = False
-            print(f"[{self.name}] Aviso: Hardware de sonido no disponible (Entorno Cloud/Docker)")
+            print(f"{INDENT_OUTPUT}[{self.name}] Aviso: Hardware de sonido no disponible (Entorno Cloud/Docker): {e}")
 
     def play_audio(self, audio_bytes):
         # recibe un flujo de bytes puros y los ejecuta en el hardware (altavoces)

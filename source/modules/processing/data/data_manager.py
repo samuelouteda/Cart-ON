@@ -1,5 +1,6 @@
 from core.base_module import BaseModule
 from core.event import Event
+from core.constants import INDENT_OUTPUT
 
 import json
 import os
@@ -31,6 +32,11 @@ class DataModule(BaseModule):
     def save_list(self):
         with open(self._shopping_file, "w", encoding="utf-8") as file:
             json.dump(self.shared_data['shopping_list'], file, ensure_ascii=False, indent=4)
+
+    def on_shutdown(self):
+        print(f"{INDENT_OUTPUT}[{self.name}] Saving shopping list on disk before shutting down...")
+        self.save_list()
+        print(f"{INDENT_OUTPUT}[{self.name}] Shopping list succesfully saved.")
 
     def handle_task(self, task):
 
