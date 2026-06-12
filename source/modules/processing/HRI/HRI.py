@@ -1,13 +1,29 @@
+import threading
+import requests
+import time
+import os
+import base64
+#import tempfile
+import speech_recognition as sr
+import json
+import unicodedata
+import vosk
+import pyaudio
+
+# Silenciamos pygame antes de importarlo
+#os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+#import pygame
+
+
 from core.base_module import BaseModule
 from core.event import Event
 from core.constants import INDENT_OUTPUT
 from core.task import Task
 from modules.actuation.speaker import Speaker
 from modules.actuation.display import Display
+from modules.processing.HRI.maps_helper import generate_location_image
 
-import requests
-import base64
-import unicodedata
+
 
 def normalize_for_display(text: str) -> str:
     # Normalitza accents (á → a, é → e, ñ → n...)
@@ -26,32 +42,28 @@ class HRI(BaseModule):
     Layer 2: Human-Robot Interaction Module
     """
 
-    # Class Attributes Definition
-    _add_commands = ["añadir", "añade", "añádeme", "mete", "apunta", "pon"]
-    _delete_commands = ["borrar", "borra", "quita", "elimina", "saca"]
-    _read_commands = ["qué hay", "lee", "dime", "cuál es", "revisa", "muestra", "enseña"]
-    _clear_commands = ["vaciar", "vacía", "limpia", "borra toda"]
-    # AFEGIR JUNTAMENT AMB ELS ALTRES ATRIBUTS DE CLASSE DE VOCABULARI
-    _shutdown_commands = ["cerrar", "apagar", "desconectar", "salir", "terminar", "apágate", "muerete", "boom"]
-    
-    _filler_words = ["por", "favor", "porfa", "a", "en", "la", "lista", "quiero", "necesito", "el", "los", "las", "un", "una"]
-    _containers = ["bote", "botes", "pote", "potes", "litro", "litros", "paquete", "paquetes", "botella", "botellas", "de"]
-
-    _number_mapping = {
-        "un": 1, "una": 1, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, 
-        "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10
-    }
-
     def __init__(self, name, event_bus, shared_sensor_stream, api_key, data_task_bus, shared_data):
-
         super().__init__(name, event_bus)
         self.sensor_stream = shared_sensor_stream
         self.api_key = api_key
-
         self.data_task_bus = data_task_bus
         self.shared_data = shared_data
+        self.cloud_url = "https://cart-on-api-225606614592.europe-southwest1.run.app/api/v1/interaccion"
+
         self.speaker = Speaker("Speaker", event_bus, shared_data)
         self.display = Display("Display", event_bus, shared_data)
+
+        # Ocultar logs de Vosk
+        vosk.SetLogLevel(-1)
+
+        # Semáforo para gestionar cuándo se puede escuchar
+        self.puedo_escuchar = threading.Event()
+        self.puedo_escuchar.set()
+
+        # Arrancamos el hilo de escucha independiente
+        threading.Thread(target=self._escuchar_microfono, daemon=True).start()
+
+        self.ultimo_refresco = time.time()
 
     def get_audio(self): 
         """Reads audio without consuming it"""
@@ -69,250 +81,196 @@ class HRI(BaseModule):
     
     def add_data_task(self, task):
         self.data_task_bus.put(task)
-    
 
-    def extract_quantity_and_product(self, spoken_text, command_list):
-        # extrae entidades clave de la frase
-        for command in command_list:
-            spoken_text = spoken_text.replace(command, "")
-            
-        words = spoken_text.split()
-        quantity = 1 
-        product_words = []
-        
-        for word in words:
-            if word.isdigit(): 
-                quantity = int(word)
-            elif word in self._number_mapping: 
-                quantity = self._number_mapping[word]
-            elif word not in self._filler_words and word not in self._containers:
-                product_words.append(word)
-                
-        return quantity, " ".join(product_words).strip()
-
-    def parse_intent(self, raw_text):
-        # Cognitive logic to classify the requested action
-        if any(command in raw_text for command in self._add_commands):
-            quantity, item = self.extract_quantity_and_product(raw_text, self._add_commands)
-            return "add", item, quantity
-        elif any(command in raw_text for command in self._delete_commands):
-            quantity, item = self.extract_quantity_and_product(raw_text, self._delete_commands)
-            return "delete", item, quantity
-        elif any(command in raw_text for command in self._read_commands):
-            return "read", None, None
-        elif any(command in raw_text for command in self._clear_commands):
-            return "clear", None, None
-        elif any(command in raw_text for command in self._shutdown_commands):
-            return "shutdown", None, None  
-        
-        return "unknown", None, None
-
-    def speech_to_text(self, audio_data):
-        # Converts audio to text using Google's API
-        audio_wav = audio_data.get_wav_data()
-        audio_b64 = base64.b64encode(audio_wav).decode("utf-8")
-
-        endpoint_url = f"https://speech.googleapis.com/v1/speech:recognize?key={self.api_key}"
-        payload = {
-            "config": {"encoding": "LINEAR16", "sampleRateHertz": audio_data.sample_rate, "languageCode": "es-ES"},
-            "audio": {"content": audio_b64}
-        }
-
-        try:
-            response = requests.post(endpoint_url, json=payload)
-            response_json = response.json()
-            if "results" in response_json:
-                return response_json["results"][0]["alternatives"][0]["transcript"].lower().strip()
-        except Exception as e:
-            print(f"SST Connection error: {e}")
-        return None
-    
-    def text_to_speech(self, text_to_say):
-        # genera los bytes de audio a partir de texto (modulo cognitivo puro, no reproduce)
-        endpoint_url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={self.api_key}"
-
-        payload = {
-            "input": {"text": text_to_say},
-            "voice": {"languageCode": "es-ES", "name": "es-ES-Neural2-F"},
-            "audioConfig": {"audioEncoding": "MP3"}
-        }
-
-        try:
-            response = requests.post(endpoint_url, json=payload)
-            response_json = response.json()
-            
-            if "audioContent" in response_json:
-                # decodificamos la respuesta a bytes puros y la retornamos
-                return base64.b64decode(response_json["audioContent"])
-        except Exception as e:
-            print(f"TTS Petition error: {e}")
-            
-        return None
-    
-    def process_audio(self):
-        audio_data = self.read_audio()
-       # print(f"{INDENT_OUTPUT}[{self.name}] Listening...")
-
-        if not audio_data:
-            self.display.update_data(status="LISTENING", text="Esperando entrada por voz...")
-            return
-
-        self.display.update_data(status="PROCESSING", text="Analizando señal de voz...")
-        raw_text = self.speech_to_text(audio_data)
-        
-        if not raw_text:
-            self.display.update_data(status="LISTENING", text="No se ha detectado texto claro.")
-            return
-        
-        print(f"{INDENT_OUTPUT}[{self.name}] Audio detected: \"{raw_text}\"")
-        self.display.update_data(status="PROCESSING", text=raw_text)
-        
-        # Process audio
-        intent, item, quantity = self.parse_intent(raw_text)
-
-        if intent == "unknown":
-            # REFACTORITZACIÓ PER A UNA INTERACCIÓ MÉS NATURAL:
-            self.display.update_data(
-                status="CONFUSED",                          # Un estat menys agressiu que "ERROR"
-                title="Procesando Petición",                # Títol més natural
-                data_dict = {
-                    "He escuchado": lambda raw_text: f'"{normalize_for_display(raw_text)}"',
-                    "->": "No se como ayudarte con esto aun"
-                },
-                footer="Esperando aclaración del usuario..."
-            )
-            
-            # La veu del robot acompanya de manera natural el que es veu a la pantalla
-            self.speak("He entendido lo que decias, pero no sé cómo ayudarte con esa petición. ¿Podrías decirmelo de otra forma?")
-            print(f"{INDENT_OUTPUT}[{self.name}] Unknown order. Prompting user for clarification.")
-            return
-        
-        elif intent == "add":
-            self.display.update_data(status="SUCCESS", title="Elemento Añadido", data_dict={"Acción": "ADD", "Elemento": item, "Cantidad": quantity})
-            self.add_data_task(
-                Task(
-                    type="add_item", 
-                    data={
-                        "item": item,
-                        "quantity": quantity
-                    }
-                )
-            )
-
-            self.speak(f"He añadido {quantity} de {item}.")
-
-            self.publish_event(
-                Event(
-                    type="item_added",
-                    data={
-                        "item": item,
-                    },
-                    origin=self.name
-                )
-            )
-        
-        elif intent == "delete":
-            self.display.update_data(status="SUCCESS", title="Elemento Eliminado", data_dict={"Acción": "DELETE", "Elemento": item})
-            self.add_data_task(
-                Task(
-                    type="delete_item", 
-                    data={
-                        "item": item,
-                        "quantity": quantity
-                    }
-                )
-            )
-
-            self.speak(f"He borrado el producto {item} completamente de la lista.")
-
-            self.publish_event(
-                Event(
-                    type="item_deleted",
-                    data={
-                        "item": item,
-                        "quantity": quantity
-                    },
-                    origin=self.name
-                )
-            )
-        elif intent == "read":
-            lista_actual = self.shared_data.get('shopping_list', {})
-            datos_pantalla = lista_actual if lista_actual else {"Estado": "Lista vacía"}
-            self.display.update_data(status="SUCCESS", title="Lectura de Datos", data_dict=datos_pantalla)
-           
-            if self.shared_data['shopping_list']:
-                formatted_list = ", ".join([f"{qty} {prod}" for prod, qty in self.shared_data['shopping_list'].items()])
-                self.speak(f"en la lista tienes: {formatted_list}.")
-            else:
-                self.speak("la lista de la compra está vacía.")
-
-            self.publish_event(
-                Event(
-                    type="read_list",
-                    data=self.shared_data['shopping_list'],
-                    origin=self.name
-                )
-            )
-        elif intent == "clear":
-            self.display.update_data(status="SUCCESS", title="Limpieza de Datos", data_dict={"Registros": "Todos eliminados"})
-            self.add_data_task(
-                Task(type="clear_list")
-            )
-
-            self.speak("He vaciado la lista de la compra por completo.")
-
-            self.publish_event(
-                Event(
-                    type="list_cleared",
-                    origin=self.name
-                )
-            )
-            
-        # AFEGIR AQUEST BLOC DINS DE LA CADENA IF/ELIF DE PROCESS_AUDIO
-        elif intent == "shutdown":
-            # 1. Actualitzem el display amb un estat de comiat amable
-            self.display.update_data(
-                status="SHUTDOWN",
-                title="Apagando Sistema",
-                data_dict={
-                    "Orden": "Cierre solicitado",
-                    "Estado": "Guardando datos y saliendo..."
-                },
-                footer="Desconexión en curso."
-            )
-            
-            # 2. El robot s'acomiada parlant de viva veu
-            self.speak("Entendido. Procedo a apagar el sistema. ¡Hasta pronto!")
-            
-            # 3. Notifiquem al Planner global que volem tancar-ho tot
-            self.publish_event(
-                Event(
-                    type="shutdown_requested",
-                    origin=self.name
-                )
-            )
-            print(f"{INDENT_OUTPUT}[{self.name}] Shutdown request published. Exiting loop.")
-            return
-
-            
-    
     def handle_task(self, task):
-        if task.type == "speak":
-            # Play audio to talk back
-            print(f"{INDENT_OUTPUT}[{self.name}] Playing audio.")
-            self.speak(task.data)
+        if task.type == "SEND_TO_CLOUD":
+            print(f"{INDENT_OUTPUT}[{self.name}] Task recibida: {task.type}")
+            # Bloqueamos la escucha
+            self.puedo_escuchar.clear() 
+            
+            texto_usuario = task.data
+            foto_bytes = self.sensor_stream.get("last_frame", b'\x00')
+            
+            self.display.update_data(
+                status="PROCESSING", 
+                text=texto_usuario, 
+                robot_text="", 
+                title="Conectando al Cloud...",
+                data_dict={}
+            )
+            self.display.refresh()
+            
+            print(f"{INDENT_OUTPUT}[{self.name}] Conectando a la nube...")
+            respuesta = self._hacer_peticion(texto_usuario, foto_bytes)
+            
+            self.publish_event(Event(origin=self.name, type="CLOUD_RESPONSE", data=respuesta))
+            
+        elif task.type == "SPEAK":
+            # Extraemos el paquete del cloud
+            datos_nube = task.data
+            print(datos_nube)
+            texto = datos_nube.get("texto", "Error en la respuesta")
+            audio_b64 = datos_nube.get("audio_b64", None)
+            
+            # --- MAGIA MULTIMEDIA ---
+            aula_recibida = datos_nube.get("aula", None)
+            lat_recibida = datos_nube.get("lat", None)
+            lng_recibida = datos_nube.get("lng", None)
 
-    def speak(self, text):
-        # el planificador orquesta la comunicacion: pide el audio a hri y se lo pasa a actuacion
-        print(f"{INDENT_OUTPUT}[{self.name}] Robot: {text}")
-        audio_bytes = self.text_to_speech(text)
+            imagen_mapa = None
+            if aula_recibida and lat_recibida and lng_recibida:
+                maps_key = os.getenv("MAPS_API_KEY")
+                imagen_mapa = generate_location_image(aula_recibida, lat_recibida, lng_recibida, maps_key)
+            
+            self.display.update_data(
+                status="SPEAKING", 
+                title=f"Ruta a {aula_recibida}" if aula_recibida else "Respuesta Asistente",
+                robot_text=texto,
+                image=imagen_mapa
+            )
+            
+            print(f"\n{INDENT_OUTPUT} [Cart-ON Dice]: {texto}\n")
+            
+            #  DELEGACIÓN AL SPEAKER (Separación de responsabilidades)
+            if audio_b64:
+                try:
+                    audio_bytes = base64.b64decode(audio_b64)
+                    # Aquí es donde ocurre la magia: le pasamos los bytes a tu módulo Speaker
+                    # Como play_audio ya tiene su propio bucle de bloqueo, esto esperará automáticamente
+                    self.speaker.play_audio(audio_bytes)
+                except Exception as e:
+                    print(f"{INDENT_OUTPUT} Error al delegar audio al Speaker: {e}")
+
+            # Ponemos el semáforo en verde tras reproducir
+            self.puedo_escuchar.set()
+
+    def _hacer_peticion(self, frase, foto_bytes):
+        try:
+            # JPEG de seguridad 1x1 si no hay foto
+            if not foto_bytes or foto_bytes == b'\x00':
+                foto_bytes = (
+                    b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00'
+                    b'\xff\xdb\x00C\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff'
+                    b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff'
+                    b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff'
+                    b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff'
+                    b'\xff\xff\xff\xff\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01'
+                    b'\x11\x00\xff\xc4\x00\x07\x00\x00\x00\x00\x00\x00\x00\xff\xda'
+                    b'\x00\x08\x01\x01\x00\x00\x3f\x00\x37\xff\xd9'
+                )
+
+            archivos = {'image_file': ('frame.jpg', foto_bytes, 'image/jpeg')}
+            datos = {'frase_usuario': frase}
+            
+            res = requests.post(self.cloud_url, files=archivos, data=datos, timeout=15)
+            res.raise_for_status()
+            return res.json()
+            
+        except requests.exceptions.RequestException as e:
+            print(f"{INDENT_OUTPUT} Detalle del error de conexión: {e}")
+            self.puedo_escuchar.set()
+            return {"status": "error", "texto": "Perdona, mis antenas no conectan con internet."}
+
+    def _escuchar_microfono(self):
+        recognizer_google = sr.Recognizer()
         
-        if audio_bytes:
-            self.speaker.play_audio(audio_bytes)
+        ruta_modelo = os.path.join(os.path.dirname(__file__), "vosk-model-small-es-0.42")
+        print("La ruta es: ", ruta_modelo)
+        if not os.path.exists(ruta_modelo):
+            print(f"{INDENT_OUTPUT}[{self.name}]  ERROR: No encuentro la carpeta 'vosk-model-small-es-0.42'.")
+            return
 
+        modelo = vosk.Model(ruta_modelo)
+        recognizer_vosk = vosk.KaldiRecognizer(modelo, 16000)
+        pa = pyaudio.PyAudio()
+
+        index_micro_usb = None
+        for i in range(pa.get_device_count()):
+            dev_info = pa.get_device_info_by_index(i)
+            if "USB ENC" in dev_info.get('name', '') or "hw:3,0" in dev_info.get('name', ''):
+                index_micro_usb = i
+                print(f"{INDENT_OUTPUT}[{self.name}]  Micrófono USB detectado: {dev_info['name']}")
+                break
+        
+        necesita_despertar = True
+
+        while self.running:
+            self.puedo_escuchar.wait() 
+            
+            # --- FASE 1: ESPERAR LA WAKE WORD ---
+            if necesita_despertar:
+                print(f"\n{INDENT_OUTPUT} Cart-ON en reposo. Di 'Cartón' para despertarlo...")
+                
+                stream = pa.open(
+                    format=pyaudio.paInt16,
+                    channels=1,
+                    rate=16000,
+                    input=True,
+                    frames_per_buffer=4000
+                )
+                stream.start_stream()
+                
+                wake_word_detectada = False
+                while self.running and not wake_word_detectada:
+                    if not self.puedo_escuchar.is_set():
+                        time.sleep(0.1)
+                        continue
+
+                    data = stream.read(4000, exception_on_overflow=False)
+                    if recognizer_vosk.AcceptWaveform(data):
+                        resultado = json.loads(recognizer_vosk.Result())
+                        texto_detectado = resultado.get("text", "").lower()
+                        
+                        if "cartón" in texto_detectado or "carton" in texto_detectado or "carto" in texto_detectado:
+                            print(f"\n{INDENT_OUTPUT} ¡Wake Word ('Cart-ON') Detectada!")
+                            wake_word_detectada = True
+
+                stream.stop_stream()
+                stream.close()
+                necesita_despertar = False
+
+            if not self.running: break
+            
+            # --- FASE 2: CONVERSACIÓN CONTINUA ---
+            try:
+                with sr.Microphone(device_index=index_micro_usb) as source:
+                    recognizer_google.adjust_for_ambient_noise(source, duration=1)
+                    print(f"{INDENT_OUTPUT} Te escucho... (Tienes 10s para hablar)")
+                    audio = recognizer_google.listen(source, timeout=10, phrase_time_limit=10)
+
+                self.puedo_escuchar.clear()
+                print(f"{INDENT_OUTPUT} Traduciendo tu voz a texto...")
+                
+                texto = recognizer_google.recognize_google(audio, language="es-ES")
+                print(f"{INDENT_OUTPUT} Has dicho: '{texto}'")
+
+                if texto.lower() == 'salir':
+                    self.publish_event(Event(origin=self.name, type="SHUTDOWN"))
+                    break
+                elif texto.strip():
+                    # Lanzamos el texto para que el Planner responda con un SEND_TO_CLOUD
+                    self.publish_event(Event(origin=self.name, type="VOICE_DETECTED", data=texto))
+                    
+            except sr.WaitTimeoutError:
+                print(f"{INDENT_OUTPUT} 10 segundos de inactividad. Vuelvo a dormir zZz...")
+                necesita_despertar = True
+            except sr.UnknownValueError:
+                print(f"{INDENT_OUTPUT} No te he entendido bien. Inténtalo de nuevo...")
+                self.puedo_escuchar.set() 
+            except Exception as e:
+                if self.running:
+                    print(f"{INDENT_OUTPUT} Error en el micro: {e}")
+                    necesita_despertar = True
+                    self.puedo_escuchar.set()
+        
     def loop(self):
-        self.process_audio()
-        self.display.refresh()
+        if self.puedo_escuchar.is_set():
+            self.display.update_data(status="LISTENING", text="Esperando entrada por voz...")
+        
+        ahora = time.time()
+        if ahora - self.ultimo_refresco >= 0.05:  # 0.05s = 20 FPS
+            self.display.refresh()
+            self.ultimo_refresco = ahora
 
 
             

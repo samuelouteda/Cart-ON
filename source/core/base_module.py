@@ -40,6 +40,10 @@ class BaseModule(Thread):
         """
         pass
 
+    def on_shutdown(self):
+        """Sobrescribir en submodulos para tareas de limpieza (cerrar archivos, puertos, etc.)"""
+        pass
+
     def run(self):
         indentation = "" if self.name == "Planner" else INDENT_OUTPUT
         print(f"{indentation}[{self.name}] Started.")
@@ -47,11 +51,18 @@ class BaseModule(Thread):
 
             try:
                 task = self.task_queue.get_nowait()
+
+                if hasattr(task, 'type') and task.type == "shutdown":
+                    self.running = False
+                    break
                 self.handle_task(task)
 
             except Empty:
                 pass
 
-            self.loop()
+            if self.running:
+                self.loop()
+                sleep(0.01)
 
-            sleep(0.01)
+        self.on_shutdown()
+        print(f"{indentation}[{self.name}] Stopped cleanly.")
