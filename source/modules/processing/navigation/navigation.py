@@ -122,11 +122,11 @@ class Navigation(BaseModule):
             self.is_scanning_shelf = False
 
         # ========================================================
-        # 📸 2. SINCRONIZACIÓN CON EL MÓDULO DE VISIÓN (NUEVO)
+        # 📸 2. ÓRDENES DEL PLANNER PARA REANUDAR ESCANEO
         # ========================================================
-        elif task.type == "PHOTO_DONE":
+        elif task.type == "RESUME_AFTER_PHOTO":
             if self.is_scanning_shelf:
-                print(f"{INDENT_OUTPUT}[{self.name}] ✅ Módulo de visión ha terminado. Retomando ruta...")
+                print(f"{INDENT_OUTPUT}[{self.name}] ✅ El Planner ordena reanudar. Retomando ruta...")
                 threading.Thread(target=self._resume_after_scan, daemon=True).start()
 
         # ========================================================
@@ -302,8 +302,9 @@ class Navigation(BaseModule):
         time.sleep(0.5)
         
         # 3. Disparar evento para que vision.py haga la foto
-        print(f"{INDENT_OUTPUT}[{self.name}] 📸 Disparando evento de foto...")
-        self.publish_event(Event(origin=self.name, type="TAKE_INVENTORY_PHOTO"))
+        # 3. Disparar evento PARA EL PLANNER
+        print(f"{INDENT_OUTPUT}[{self.name}] 📸 Avisando al Planner de que la estantería está lista...")
+        self.publish_event(Event(origin=self.name, type="SHELF_DETECTED"))
         # Nos quedamos en modo is_scanning_shelf = True hasta que vision.py grite "PHOTO_DONE"
 
     def _resume_after_scan(self):
@@ -324,8 +325,23 @@ class Navigation(BaseModule):
         success = self.motion_controller.follow_path(waypoints)
         
         if success and not self.is_scanning_shelf:
-            if not self.returning_home:
-                print(f"{INDENT_OUTPUT}[{self.name}] Destinació assolida! Esperant 5 segons abans de tornar a casa...")
+            if self.destinations_queue:
+                # 🛒 ¡QUEDAN PARADAS EN LA LISTA!
+                print(f"{INDENT_OUTPUT}[{self.name}] ✅ Llegamos a {self.target_item}. Esperando 5s para que cojas el producto...")
+                time.sleep(5) # Tiempo para coger el paquete de arroz
+                
+                # Cargar el siguiente de la cola
+                siguiente_parada, sx, sy = self.destinations_queue.pop(0)
+                self.target_item = siguiente_parada
+                self.shared_data["item_locations"][siguiente_parada] = (sx, sy)
+                
+                print(f"{INDENT_OUTPUT}[{self.name}] 🚗 Moviéndonos a la siguiente parada: {self.target_item}...")
+                with self._nav_lock:
+                    self.nav_state = "calculating"
+                    
+            elif not self.returning_home:
+                # 🏁 LISTA TERMINADA. VOLVEMOS A CASA
+                print(f"{INDENT_OUTPUT}[{self.name}] ✅ Destino final alcanzado. Esperando 5s antes de volver a la Base...")
                 time.sleep(5) 
                 
                 self.returning_home = True
@@ -334,9 +350,12 @@ class Navigation(BaseModule):
                     self.shared_data["item_locations"] = {}
                 self.shared_data["item_locations"]["HOME_BASE"] = (self.home_x, self.home_y)
                 
+                print(f"{INDENT_OUTPUT}[{self.name}] 🏠 Calculando ruta de vuelta...")
                 with self._nav_lock:
                     self.nav_state = "calculating"
+                    
             else:
+                # 🏠 LLEGAMOS A CASA
                 print(f"{INDENT_OUTPUT}[{self.name}] 🏠 He tornat a la Base! Missió completada.")
                 self.publish_event(Event(type="PHYSICAL_ACTION_DONE", origin=self.name))
                 with self._nav_lock:
@@ -351,6 +370,7 @@ class Navigation(BaseModule):
                     self.nav_state = "idle"
                 self.target_item = None
                 self.returning_home = False
+                self.destinations_queue.clear() # Vaciamos la cola por si hay un error crítico
 
     def _exploration_step(self):
         def _step():

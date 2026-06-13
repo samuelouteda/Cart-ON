@@ -39,13 +39,25 @@ class Planner(BaseModule):
 
         if str(type).lower() == "shutdown":
             print(f"[{self.name}] Apagando orquestador y notificando a módulos...")
-            shutdown_task = Task(
-                        type="shutdown"
-                )
+            shutdown_task = Task(type="shutdown")
             for m in self.modules.values():
                 m.add_task(shutdown_task)
             self.running = False
             return
+
+        # =======================================================
+        # 🛒 EL BAILE DEL ROBOT: ESCANEO DE ESTANTERÍAS (NUEVO)
+        # =======================================================
+        elif type == "SHELF_DETECTED":
+            print(f"[{self.name}] 🛒 Navegador reporta estantería. Ordenando a Sensory tomar foto...")
+            if "Sensory" in self.modules:
+                self.modules["Sensory"].add_task(Task(type="TAKE_INVENTORY_PHOTO"))
+
+        elif type == "PHOTO_DONE":
+            print(f"[{self.name}] ✅ Sensory finalizó el escaneo en la nube. Ordenando a Navegador reanudar...")
+            if "Navigation" in self.modules:
+                self.modules["Navigation"].add_task(Task(type="RESUME_AFTER_PHOTO"))
+        # =======================================================
 
         elif type == "item_added":
             item = data.get('item') if isinstance(data, dict) else data
@@ -82,7 +94,7 @@ class Planner(BaseModule):
                     self.modules["HRI"].add_task(Task(type="SEND_TO_CLOUD", data=data))
 
         elif type == "PHOTO_READY":
-            print(f"[{self.name}] Foto lista en el flujo de escaneo.")
+            print(f"[{self.name}] Foto lista en el flujo de escaneo humano.")
             if self.frase_pendiente:
                 print(f"[{self.name}] Enviando Task a HRI: SEND_TO_CLOUD (Voz + Foto delegada)")
                 if "HRI" in self.modules:
@@ -106,12 +118,16 @@ class Planner(BaseModule):
                 if "HRI" in self.modules:
                     self.modules["HRI"].add_task(Task(type="SPEAK", data=data))
 
-                comando = data.get("comando_robot")
+                # 🚀 NUEVO: Capturamos 'accion_fisica' (conducción multipunto y mapeo)
+                accion = data.get("accion_fisica", "NINGUNA")
+                comando = data.get("comando_robot") # Por si queda algo legacy
+
                 if "Navigation" in self.modules:
-                    if comando == "START_SLAM":
+                    if accion == "INICIAR_MAPEO" or comando == "START_SLAM":
                         self.modules["Navigation"].add_task(Task(type="START_MAPPING"))
-                    elif comando == "START_NAVIGATION":
-                        self.modules["Navigation"].add_task(Task(type="NAVIGATE_TO_TARGET"))
+                    elif accion == "INICIAR_CONDUCCION" or comando == "START_NAVIGATION":
+                        # Pasamos los datos enteros (ruta_supermercado, lat, lng, aula)
+                        self.modules["Navigation"].add_task(Task(type="START_DRIVING", data=data))
                     elif comando == "STOP_MOTORS":
                         self.modules["Navigation"].add_task(Task(type="STOP_MOTORS"))
 

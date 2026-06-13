@@ -88,21 +88,55 @@ class PlannerCloud:
         # Variable de ruta multipunto (Supermercado)
         ruta_supermercado = None
 
-        # --- CAPA DE NEGOCIO A: MODO SUPERMERCADO ---
+       # --- CAPA DE NEGOCIO A: MODO SUPERMERCADO ---
         if self.modo_entorno == "supermercado":
+            
+            # 🛒 1. AÑADIR PRODUCTOS
             if intent == "add" and item != "producto desconocido":
                 cantidad_final = quantity if quantity else 1
                 self.lista_compra[item] = self.lista_compra.get(item, 0) + cantidad_final
                 contexto_interno = f"Has añadido {cantidad_final} de {item} a la lista."
-            elif intent == "read_list":
-                contexto_interno = "Lee la lista de la compra al usuario."
             
-            # 🚀 LÓGICA DE RUTA MULTIPUNTO DEL SUPERMERCADO
+            # 🗑️ 2. ELIMINAR PRODUCTOS
+            elif intent in ["remove", "delete", "clear", "drop"]:
+                
+                # CASO A: VACIAR LA LISTA ENTERA ("Borra la lista", "Quítalo todo")
+                if item in ["todo", "lista", "la lista", "producto desconocido"] or "lista" in texto_bajo or "todo" in texto_bajo:
+                    self.lista_compra.clear()
+                    contexto_interno = "El usuario te ha pedido vaciar la lista. Hazlo saber diciendo que la lista está completamente limpia y lista para empezar de nuevo."
+                
+                # CASO B y C: ELIMINAR UN PRODUCTO ESPECÍFICO
+                elif item in self.lista_compra:
+                    # CASO B: Eliminar todos los paquetes de un producto ("Quita la leche", "Borra todos los cereales")
+                    # Se activa si no especifica cantidad, si la cantidad es mayor al stock, o si dice "todo/todos"
+                    if not quantity or quantity >= self.lista_compra[item] or "todo" in texto_bajo or "todos" in texto_bajo:
+                        del self.lista_compra[item]
+                        contexto_interno = f"Has eliminado completamente el {item} de la lista de la compra. Ya no queda ninguno."
+                    
+                    # CASO C: Eliminar solo una cantidad específica ("Quita 1 de leche")
+                    else:
+                        self.lista_compra[item] -= quantity
+                        contexto_interno = f"Has quitado {quantity} de {item} de la lista. Aún le quedan {self.lista_compra[item]} en la cesta."
+                
+                # ERROR: Intenta borrar algo que no tiene
+                else:
+                    contexto_interno = f"El usuario quiere borrar {item}, pero ese producto no está en su lista de la compra actual. Díselo con tacto."
+
+            # 📖 3. LEER LA LISTA
+            elif intent == "read_list":
+                if self.lista_compra:
+                    # Construimos un texto plano con los productos: "2 de leche, 1 de pan..."
+                    elementos = [f"{cant} de {prod}" for prod, cant in self.lista_compra.items()]
+                    lista_texto = ", ".join(elementos[:-1]) + (f" y {elementos[-1]}" if len(elementos) > 1 else elementos[0])
+                    contexto_interno = f"Dile al usuario con entusiasmo los productos que tiene en su lista. Contiene exactamente: {lista_texto}."
+                else:
+                    contexto_interno = "Dile al usuario amablemente que su lista de la compra está vacía."
+            
+            # 🚀 4. LÓGICA DE RUTA MULTIPUNTO DEL SUPERMERCADO
             if quiere_moverse and self.lista_compra:
                 accion_final = "INICIAR_CONDUCCION"
                 contexto_interno = "Dile al usuario amablemente que vas a arrancar los motores para recorrer el supermercado y buscar los productos de su lista."
                 
-                # Consultamos la base de datos para extraer las coordenadas de toda la lista
                 ruta_supermercado = []
                 conn = self.sql.get_connection()
                 if conn:
@@ -125,7 +159,7 @@ class PlannerCloud:
                         conn.close()
                         
             elif quiere_moverse and not self.lista_compra:
-                contexto_interno = "El usuario quiere que le lleves por el súper, pero la lista está vacía. Dile que añada algún producto primero."
+                contexto_interno = "El usuario quiere que le lleves por el súper, pero la lista está vacía. Dile que añada algún producto primero antes de arrancar."
 
         # --- CAPA DE NEGOCIO B: MODO ESCUELA (UAB) ---
         elif self.modo_entorno == "escuela":
