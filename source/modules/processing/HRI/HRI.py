@@ -50,8 +50,8 @@ class HRI(BaseModule):
         self.display = Display("Display", event_bus, shared_data)
         self.ojos = RobotEyes()
 
-        # 🛒 MOCHILA LOCAL PARA LA LISTA DE LA COMPRA (Evita la amnesia de la nube)
-        self.lista_compra_local = {}
+        # MOCHILA LOCAL PARA LA LISTA DE LA COMPRA (Evita la amnesia de la nube)
+        self.lista_compra_local = shared_data.get('shopping_list', {}).copy()
 
         # Ocultar logs de Vosk
         vosk.SetLogLevel(-1)
@@ -96,7 +96,7 @@ class HRI(BaseModule):
                 text=texto_usuario, 
                 robot_text="", 
                 title="Conectando al Cloud...",
-                data_dict={}
+                data_dict=self.shared_data.get('shopping_list', {})
             )
             self.display.refresh()
             
@@ -108,13 +108,13 @@ class HRI(BaseModule):
         elif task.type == "SPEAK":
             # Extraemos el paquete del cloud
             datos_nube = task.data
+            ####====================
             emocion_recibida = datos_nube.get("emocion", "neutro")
             texto = datos_nube.get("texto", "Error en la respuesta")
             audio_b64 = datos_nube.get("audio_b64", None)
             
             # 🛒 ACTUALIZAMOS LA MOCHILA LOCAL DE LA COMPRA
-            if "lista_compra" in datos_nube:
-                self.lista_compra_local = datos_nube["lista_compra"]
+            self.lista_compra_local = datos_nube.get("lista_compra", self.shared_data.get("shopping_list", {}))
 
             # 🛠️ CAPTURA DE DATOS GEOGRÁFICOS DE LA NUBE
             aula_recibida = datos_nube.get("aula", None)
@@ -128,10 +128,12 @@ class HRI(BaseModule):
             print(f"🎭 Cambiando cara del robot a modo: {emocion_recibida}")
             print(f"🔊 Hablando: '{texto}'")
                         
-            # --- 🗺️ MAGIA MULTIMEDIA DE GOOGLE MAPS ---
+            #####==========================
+            
+
             imagen_mapa = None
             if aula_recibida and lat_recibida and lng_recibida:
-                print(f"🗺️ Base de Datos detectó localización para el aula {aula_recibida}. Invocando Google Maps...")
+                print(f"{INDENT_OUTPUT}[{self.name}] Base de Datos detectó localización para el aula {aula_recibida}. Invocando Google Maps...")
                 maps_key = os.getenv("MAPS_API_KEY")
                 imagen_mapa = generate_location_image(aula_recibida, lat_recibida, lng_recibida, maps_key)
             
@@ -139,10 +141,11 @@ class HRI(BaseModule):
                 status="SPEAKING", 
                 title=f"Ruta a {aula_recibida}" if aula_recibida else "Respuesta Asistente",
                 robot_text=texto,
-                image=imagen_mapa
+                image=imagen_mapa,
+                data_dict=self.lista_compra_local
             )
             
-            print(f"\n{INDENT_OUTPUT} [Cart-ON Dice]: {texto}\n")
+            print(f"\n{INDENT_OUTPUT}[{self.name}] [Cart-ON Dice]: {texto}\n")
             
             # DELEGACIÓN AL SPEAKER (Separación de responsabilidades)
             if audio_b64:
@@ -151,7 +154,7 @@ class HRI(BaseModule):
                     # Como play_audio ya tiene su propio bucle de bloqueo, esto esperará automáticamente
                     self.speaker.play_audio(audio_bytes)
                 except Exception as e:
-                    print(f"{INDENT_OUTPUT} Error al delegar audio al Speaker: {e}")
+                    print(f"{INDENT_OUTPUT}[{self.name}] Error al delegar audio al Speaker: {e}")
 
             # Ponemos el semáforo en verde tras reproducir
             self.puedo_escuchar.set()
@@ -172,11 +175,12 @@ class HRI(BaseModule):
                 )
 
             archivos = {'image_file': ('frame.jpg', foto_bytes, 'image/jpeg')}
+            # Añadimos la lista de la compra al paquete de datos para la nube
+            lista_a_enviar = self.lista_compra_local if self.lista_compra_local else self.shared_data.get('shopping_list', {})
             
-            # 🛒 Añadimos la lista de la compra al paquete de datos para la nube
             datos = {
                 'frase_usuario': frase,
-                'lista_compra': json.dumps(self.lista_compra_local)
+                'lista_compra': json.dumps(lista_a_enviar, ensure_ascii=False)
             }
             
             res = requests.post(self.cloud_url, files=archivos, data=datos, timeout=30)
@@ -184,7 +188,7 @@ class HRI(BaseModule):
             return res.json()
             
         except requests.exceptions.RequestException as e:
-            print(f"{INDENT_OUTPUT} Detalle del error de conexión: {e}")
+            print(f"{INDENT_OUTPUT}[{self.name}] Detalle del error de conexión: {e}")
             self.puedo_escuchar.set()
             return {"status": "error", "texto": "Perdona, mis antenas no conectan con internet."}
 
@@ -192,7 +196,7 @@ class HRI(BaseModule):
         recognizer_google = sr.Recognizer()
         
         ruta_modelo = os.path.join(os.path.dirname(__file__), "vosk-model-small-es-0.42")
-        print("La ruta es: ", ruta_modelo)
+
         if not os.path.exists(ruta_modelo):
             print(f"{INDENT_OUTPUT}[{self.name}]  ERROR: No encuentro la carpeta 'vosk-model-small-es-0.42'.")
             return
@@ -216,7 +220,7 @@ class HRI(BaseModule):
             
             # --- FASE 1: ESPERAR LA WAKE WORD ---
             if necesita_despertar:
-                print(f"\n{INDENT_OUTPUT} Cart-ON en reposo. Di 'Cartón' para despertarlo...")
+                print(f"\n{INDENT_OUTPUT}[{self.name}] Cart-ON en reposo. Di 'Cartón' para despertarlo...")
                 
                 stream = pa.open(
                     format=pyaudio.paInt16,
@@ -239,7 +243,7 @@ class HRI(BaseModule):
                         texto_detectado = resultado.get("text", "").lower()
                         
                         if "cartón" in texto_detectado or "carton" in texto_detectado or "carto" in texto_detectado:
-                            print(f"\n{INDENT_OUTPUT} ¡Wake Word ('Cart-ON') Detectada!")
+                            print(f"\n{INDENT_OUTPUT}[{self.name}] ¡Wake Word ('Cart-ON') Detectada!")
                             wake_word_detectada = True
 
                 stream.stop_stream()
@@ -252,14 +256,14 @@ class HRI(BaseModule):
             try:
                 with sr.Microphone(device_index=index_micro_usb) as source:
                     recognizer_google.adjust_for_ambient_noise(source, duration=1)
-                    print(f"{INDENT_OUTPUT} Te escucho... (Tienes 10s para hablar)")
-                    audio = recognizer_google.listen(source, timeout=30, phrase_time_limit=10)
+                    print(f"{INDENT_OUTPUT}[{self.name}] Te escucho... (Tienes 10s para hablar)")
+                    audio = recognizer_google.listen(source, timeout=10, phrase_time_limit=10)
 
                 self.puedo_escuchar.clear()
-                print(f"{INDENT_OUTPUT} Traduciendo tu voz a texto...")
+                print(f"{INDENT_OUTPUT}[{self.name}] Traduciendo tu voz a texto...")
                 
                 texto = recognizer_google.recognize_google(audio, language="es-ES")
-                print(f"{INDENT_OUTPUT} Has dicho: '{texto}'")
+                print(f"{INDENT_OUTPUT}[{self.name}] Has dicho: '{texto}'")
 
                 if texto.lower() == 'salir':
                     self.publish_event(Event(origin=self.name, type="SHUTDOWN"))
@@ -269,14 +273,14 @@ class HRI(BaseModule):
                     self.publish_event(Event(origin=self.name, type="VOICE_DETECTED", data=texto))
                     
             except sr.WaitTimeoutError:
-                print(f"{INDENT_OUTPUT} 10 segundos de inactividad. Vuelvo a dormir zZz...")
+                print(f"{INDENT_OUTPUT}[{self.name}] 10 segundos de inactividad. Vuelvo a dormir zZz...")
                 necesita_despertar = True
             except sr.UnknownValueError:
-                print(f"{INDENT_OUTPUT} No te he entendido bien. Inténtalo de nuevo...")
+                print(f"{INDENT_OUTPUT}[{self.name}] No te he entendido bien. Inténtalo de nuevo...")
                 self.puedo_escuchar.set() 
             except Exception as e:
                 if self.running:
-                    print(f"{INDENT_OUTPUT} Error en el micro: {e}")
+                    print(f"{INDENT_OUTPUT}[{self.name}] Error en el micro: {e}")
                     necesita_despertar = True
                     self.puedo_escuchar.set()
         
@@ -288,3 +292,6 @@ class HRI(BaseModule):
         if ahora - self.ultimo_refresco >= 0.05:  # 0.05s = 20 FPS
             self.display.refresh()
             self.ultimo_refresco = ahora
+
+
+            

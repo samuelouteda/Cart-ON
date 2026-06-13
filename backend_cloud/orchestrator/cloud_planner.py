@@ -26,7 +26,7 @@ def crear_respuesta_cloud(texto, estado_actual, emocion="neutral", lista_compra=
 
 class PlannerCloud:
     def __init__(self):
-        print("[PlannerCloud] ⚙️ Orquestador Dual Emocional iniciado.")
+        print("[PlannerCloud] Orquestador Dual Emocional iniciado.")
         self.sql = SQLManager()
         self.nlp = NLPQwen()
         self.estado_actual = "fase_2_interaccion"
@@ -37,13 +37,13 @@ class PlannerCloud:
         self.memoria_escuela = {"tema_pendiente": None}
 
     def procesar_peticion_hri(self, texto_usuario: str, imagen_bytes: bytes, mime_type: str = "image/jpeg", lista_compra_local=None):
-        # 🔄 SINCRONIZACIÓN DE ESTADO: Si el robot nos manda su lista, actualizamos la de la nube
+        # SINCRONIZACIÓN DE ESTADO: Si el robot nos manda su lista, actualizamos la de la nube
         if isinstance(lista_compra_local, dict):
             self.lista_compra = lista_compra_local.copy()
         
         texto_bajo = texto_usuario.lower()
         
-        # 🕹️ INTERCEPTORES DE CAMBIO DE MODO CON EMOCIONES ASIGNADAS
+        # INTERCEPTORES DE CAMBIO DE MODO CON EMOCIONES ASIGNADAS
         if "modo escuela" in texto_bajo:
             self.modo_entorno = "escuela"
             return crear_respuesta_cloud("Modo escuela activado. Ahora soy tu guia universitario de la UAB.", self.estado_actual, "feliz", self.lista_compra, "change_mode")
@@ -56,7 +56,7 @@ class PlannerCloud:
         # 1. Analizamos la intención semántica de la frase
         resultado_nlp = self.nlp.parse_intent(texto_usuario, modo=self.modo_entorno)
         
-        # 🛡️ BLOQUE BLINDADO ANTI-CRASHES (Ahora soporta los 7 elementos, incluyendo la emoción)
+        # BLOQUE BLINDADO ANTI-CRASHES (Ahora soporta los 7 elementos, incluyendo la emoción)
         if len(resultado_nlp) == 7:
             intent, item_crudo, quantity, group, time_val, reply, emocion_intent = resultado_nlp
         elif len(resultado_nlp) == 6:
@@ -161,12 +161,12 @@ class PlannerCloud:
         resultado_emocional = self.nlp.generate_response(texto_usuario, contexto_interno)
         respuesta_natural = resultado_emocional.get("texto")
         
-        # 🔥 LÓGICA DE PRIORIDAD EMOCIONAL
+        # LÓGICA DE PRIORIDAD EMOCIONAL
         emocion_ojos = resultado_emocional.get("emocion", "neutral")
         if emocion_ojos == "neutral" and emocion_intent and emocion_intent != "neutro":
             emocion_ojos = emocion_intent
 
-        print(f"🎭 [PlannerCloud] Emoción final inyectada en la respuesta: -> {emocion_ojos.upper()} <-")
+        print(f"[PlannerCloud] Emoción final inyectada en la respuesta: -> {emocion_ojos.upper()} <-")
 
         # 3. Devolvemos el diccionario definitivo al HRI de la Raspberry usando la función auxiliar
         return crear_respuesta_cloud(

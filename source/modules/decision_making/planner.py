@@ -21,6 +21,9 @@ class Planner(BaseModule):
          for m in modules:
               if m.name not in self.modules:
                    self.modules[m.name] = m
+    
+    def add_data_task(self, task):
+        self.data_task_bus.put(task)
 
     def handle_event(self, event):
         if isinstance(event, dict):
@@ -34,11 +37,10 @@ class Planner(BaseModule):
 
         print(f"[{self.name}] Event received: {type} from {origin}")
 
-        if type == "shutdown":
+        if str(type).lower() == "shutdown":
             print(f"[{self.name}] Apagando orquestador y notificando a módulos...")
             shutdown_task = Task(
-                        type="shutdown",
-                        origin="Planner"
+                        type="shutdown"
                 )
             for m in self.modules.values():
                 m.add_task(shutdown_task)
@@ -94,6 +96,12 @@ class Planner(BaseModule):
                 if nuevo_estado and nuevo_estado != self.fase_actual:
                     print(f"[{self.name}] Transición de fase: {self.fase_actual} -> {nuevo_estado}")
                     self.fase_actual = nuevo_estado
+
+                lista_compra = data.get("lista_compra")
+                print(f"[{self.name}] Lista recibida: {lista_compra}")
+                if isinstance(lista_compra, dict) and "Data" in self.modules:
+                    print(f"[{self.name}] Sincronizando lista de la compra local desde Cloud.")
+                    self.modules["Data"].add_task(Task(type="sync_shopping_list", data=lista_compra))
 
                 if "HRI" in self.modules:
                     self.modules["HRI"].add_task(Task(type="SPEAK", data=data))

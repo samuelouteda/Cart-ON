@@ -15,15 +15,16 @@ def health_check():
 @app.post("/api/v1/interaccion")
 async def endpoint_hri(
     frase_usuario: str = Form(...),
-    lista_compra: str = Form("{}"), # 📥 Recibimos la lista como string JSON
+    lista_compra: str = Form("{}"), # Recibimos la lista como string JSON
     image_file: UploadFile = File(...)
 ):
     try:
         imagen_bytes = await image_file.read()
         mime_type = image_file.content_type
         base64_image = base64.b64encode(imagen_bytes).decode('utf-8')
+        lista_compra_local = json.loads(lista_compra) if lista_compra else {}
         
-        # 🔄 Transformamos el string JSON a un diccionario de Python
+        # Transformamos el string JSON a un diccionario de Python
         lista_compra_local = json.loads(lista_compra) if lista_compra else {}
         
         # 1. El orquestador decide, actualiza la lista y la IA redacta el texto
@@ -36,27 +37,34 @@ async def endpoint_hri(
         
         # 🔥 EL CHIVATO ESTELAR: Verás el JSON de la lista de la compra actualizado aquí
         print("\n" + "🟢"*15)
-        print(f"🕵️ CHIVATO 3 [FastAPI Final Output]:\n{respuesta_final}")
+        print(f"CHIVATO 3 [FastAPI Final Output]:\n{respuesta_final}")
         print("🟢"*15 + "\n")
         
         # 2. TTS: Convertimos ese texto en un archivo de audio MP3
         texto = respuesta_final.get("texto", "")
         if texto:
-            # lang='es' y tld='es' nos da el acento de España.
-            tts = gTTS(text=texto, lang='es', tld='es')
-            fp = io.BytesIO()
-            tts.write_to_fp(fp)
-            fp.seek(0)
+            try:
+                texto_limpio = texto.replace("¡", "").replace("!", "").replace("¿", "").replace("?", "") 
+                # lang='es' y tld='es' nos da el acento de España.
+                tts = gTTS(text=texto_limpio, lang='es', tld='es')
+                fp = io.BytesIO()
+                tts.write_to_fp(fp)
+                fp.seek(0)
             
-            # Lo empaquetamos en texto Base64 para que viaje seguro por la red
-            respuesta_final["audio_b64"] = base64.b64encode(fp.read()).decode('utf-8')
-
+                # Lo empaquetamos en texto Base64 para que viaje seguro por la red
+                respuesta_final["audio_b64"] = base64.b64encode(fp.read()).decode('utf-8')
+            except Exception as tts_error:
+                # Si falla el audio, el JSON sigue llevando la lista de la compra y los datos de estado
+                print(f"[Warning Cloud] Error generando TTS: {tts_error}")
+                respuesta_final["audio_b64"] = None
+                respuesta_final["texto"] = texto  # Mantenemos el texto original para que al menos se imprima
         return respuesta_final
     except Exception as e:
-        print(f"🔴 Error crítico en FastAPI: {e}")
+        print(f"Error crítico en FastAPI: {e}")
         # Salvavidas para que la Raspberry no crashee si algo peta fuerte
         return {
             "status": "error", 
-            "texto": f"Error en el servidor: {str(e)}", 
+            "texto": f"Error en el servidor: {str(e)}",
+            "lista_compra": lista_compra_local, # Devolvemos lo que envió para no destruirla localmente
             "emocion": "triste"
-        }
+            }

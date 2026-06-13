@@ -18,6 +18,10 @@ class DataModule(BaseModule):
         
         self.shared_data = shared_data
         self.load_data()
+
+    @property
+    def shopping_file_path(self):
+        return os.path.abspath(self._shopping_file)
         
     def load_data(self):
         self.shared_data['shopping_list'] = self.load_list()
@@ -36,7 +40,7 @@ class DataModule(BaseModule):
     def on_shutdown(self):
         print(f"{INDENT_OUTPUT}[{self.name}] Saving shopping list on disk before shutting down...")
         self.save_list()
-        print(f"{INDENT_OUTPUT}[{self.name}] Shopping list succesfully saved.")
+        print(f"{INDENT_OUTPUT}[{self.name}] Shopping list succesfully saved at {self.shopping_file_path}.")
 
     def handle_task(self, task):
 
@@ -53,6 +57,17 @@ class DataModule(BaseModule):
 
         elif task.type == "clear_list":
             self.shared_data['shopping_list'] = {}
+
+        elif task.type == "sync_shopping_list":
+            if isinstance(task.data, dict):
+                self.shared_data['shopping_list'] = task.data.copy()
+                self.save_list()
+                print(
+                    f"{INDENT_OUTPUT}[{self.name}] Shopping list synced from Cloud and saved at "
+                    f"{self.shopping_file_path}: {self.shared_data['shopping_list']}"
+                )
+            else:
+                print(f"{INDENT_OUTPUT}[{self.name}] Ignoring invalid shopping list sync payload: {task.data}")
 
         elif task.type == "audio_to_speak":
             self.shared_data['audio_to_speak'] = task.data
