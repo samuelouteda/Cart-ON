@@ -9,9 +9,9 @@ class NLPQwen:
         self.uab_token = Config.UAB_TOKEN
         try:
             self.client = OpenAI(api_key="accesoAlLLM", base_url="https://dcc-llm.uab.cat/bes2/v1")
-            print("[NLPQwen] 🧠 Motor de Comprensión inicializado.")
+            print("[NLPQwen] Motor de Comprensión inicializado.")
         except Exception as e:
-            print(f"[NLPQwen] 🔴 Error de inicialización: {e}")
+            print(f"[NLPQwen] Error de inicialización: {e}")
             self.client = None
     
     def parse_intent(self, text: str, modo: str = "supermercado"):
@@ -32,9 +32,9 @@ class NLPQwen:
             )
             raw_text = response.choices[0].message.content.strip()
             
-            print("\n" + "🔴"*15)
-            print(f"🕵️ CHIVATO 1 [parse_intent RAW]:\n{raw_text}")
-            print("🔴"*15 + "\n")
+            print("\n" + "="*15)
+            print(f"[parse_intent RAW]:\n{raw_text}")
+            print("="*15 + "\n")
             
             # Limpieza del bloque de código JSON por seguridad
             if "```" in raw_text:
@@ -55,8 +55,7 @@ class NLPQwen:
             return intent, item, quantity, group, time_val, reply, emocion
 
         except Exception as e:
-            print(f"[NLPQwen] 🔴 Error en parsing de intención: {e}")
-            # 🛠️ FIX: Devolvemos 6 elementos exactos para evitar crash de desempaquetado en el Planner
+            print(f"[NLPQwen] Error en parsing de intención: {e}")
             return "unknown", None, 1, None, None, "Fallo al procesar mi matriz lógica.", "triste"
 
     def generate_response(self, user_text: str, context: str) -> dict:
@@ -81,9 +80,9 @@ class NLPQwen:
             
             raw_text = response.choices[0].message.content.strip()
             
-            print("\n" + "🔵"*15)
-            print(f"🕵️ CHIVATO 2 [generate_response RAW]:\n{raw_text}")
-            print("🔵"*15 + "\n")
+            print("\n" + "="*15)
+            print(f"[generate_response RAW]:\n{raw_text}")
+            print("="*15 + "\n")
             
             if "```" in raw_text:
                 raw_text = raw_text.split("```")[1].strip()
@@ -97,7 +96,7 @@ class NLPQwen:
             }
             
         except Exception as e:
-            print(f"[NLPQwen] 🔴 Error en generación emocional: {e}")
+            print(f"[NLPQwen] Error en generación emocional: {e}")
             return {
                 "texto": "He ejecutado la tarea correctamente, pero tengo interferencias en mi expresión facial.",
                 "emocion": "duda"

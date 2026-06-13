@@ -9,7 +9,7 @@ from gtts import gTTS
 app = FastAPI(title="Cart-ON API Gateway")
 planner = PlannerCloud()
 
-# 📦 Definimos la estructura de datos que recibe el escaneo
+# Estructura de datos que recibe el escaneo
 class PayloadEscaneo(BaseModel):
     imagen_base64: str
     robot_x: float = 0.0
@@ -20,7 +20,7 @@ def health_check():
     return {"status": "Cart-ON Cloud Brain is Online", "fase_actual": planner.estado_actual}
 
 # ==========================================
-# 🗣️ ENDPOINT 1: LA VOZ DEL ROBOT
+# ENDPOINT 1: VOZ DEL ROBOT
 # ==========================================
 @app.post("/api/v1/interaccion")
 async def endpoint_hri(
@@ -56,7 +56,7 @@ async def endpoint_hri(
         return {"status": "error", "texto": "Error en el servidor.", "emocion": "triste"}
 
 # ==========================================
-# 📸 ENDPOINT 2: EL ESCANEO DE ESTANTERÍAS (EL QUE FALTABA)
+# ENDPOINT 2: ESCANEO DE ESTANTERÍAS
 # ==========================================
 @app.post("/api/v1/escaneo_inventario")
 async def endpoint_escaneo(data: PayloadEscaneo):

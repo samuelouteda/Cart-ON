@@ -10,9 +10,9 @@ import numpy as np
 try:
     from core.config import Config
     from db.sql_manager import SQLManager
-    print("[TestCloud] ✅ Módulos 'Config' y 'SQLManager' importados correctamente.")
+    print("[TestCloud] Módulos 'Config' y 'SQLManager' importados correctamente.")
 except ImportError:
-    print("[TestCloud] 🔴 Error: No se pudo importar la estructura de Cart-ON.")
+    print("[TestCloud] Error: No se pudo importar la estructura de Cart-ON.")
     print("Asegúrate de ejecutar uvicorn desde la raíz del proyecto o añade las rutas.")
     # Fallback seguro para que el archivo no crashee al levantar si hay problemas de paths
     class Config: UAB_TOKEN = "accesoAlLLM"
@@ -34,7 +34,7 @@ def vision_qwen_uab(base64_image: str):
     try:
         client = OpenAI(api_key=Config.UAB_TOKEN, base_url="https://dcc-llm.uab.cat/bes2/v1")
     except Exception as e:
-        print(f"[Vision] 🔴 Error al conectar con el cliente OpenAI: {e}")
+        print(f"[Vision] Error al conectar con el cliente OpenAI: {e}")
         return []
 
     # Forzamos el formato nativo de Qwen [ymin, xmin, ymax, xmax] de 0 a 1000
@@ -61,7 +61,7 @@ def vision_qwen_uab(base64_image: str):
         )
         
         texto_crudo = response.choices[0].message.content.strip()
-        print(f"🤖 [UAB LLM Raw Response]:\n{texto_crudo}\n")
+        print(f"[UAB LLM Raw Response]:\n{texto_crudo}\n")
         
         if texto_crudo.startswith("```json"):
             texto_crudo = texto_crudo[7:-3].strip()
@@ -70,7 +70,7 @@ def vision_qwen_uab(base64_image: str):
             
         return json.loads(texto_crudo)
     except Exception as e:
-        print(f"❌ Error en la inferencia del LLM: {e}")
+        print(f"Error en la inferencia del LLM: {e}")
         return []
 
 # ==========================================
@@ -112,23 +112,19 @@ def ejecutar_upsert_en_bd(nombre_producto: str, cantidad: int):
     conexión de tu SQLManager.
     """
     if not sql_db or not nombre_producto:
-        print("[SQL] ⚠️ No se puede guardar: SQLManager no está listo o nombre vacío.")
+        print("[SQL] No se puede guardar: SQLManager no está listo o nombre vacío.")
         return
         
     try:
-        # Obtenemos la conexión real de tu SQLManager
+        # Obtenemos la conexión real del SQLManager
         conn = sql_db.get_connection() 
         if not conn:
-            print("[SQL] 🔴 Error: No se pudo obtener una conexión activa de SQLManager.")
+            print("[SQL] Error: No se pudo obtener una conexión activa de SQLManager.")
             return
             
         cursor = conn.cursor()
         nombre_limpio = nombre_producto.strip().lower()
         
-        # ======================================================================
-        # ⚠️ REVISA AQUÍ: Asegúrate de que los nombres de las columnas coincidan 
-        # con tu tabla real de la base de datos.
-        # ======================================================================
         query = """
             INSERT INTO productos (nombre_yolo, nombre_pantalla, precio, stock_actual)
             VALUES (%s, %s, 0.00, %s)
@@ -144,11 +140,11 @@ def ejecutar_upsert_en_bd(nombre_producto: str, cantidad: int):
         
     except Exception as e:
         # Imprimimos el error real que devuelve MySQL (ej. "Table 'productes' doesn't exist" o "Unknown column...")
-        print(f"🗄️ [SQL Real] 🔴 ERROR CRÍTICO DE MYSQL: {e}")
+        print(f"🗄️ [SQL Real] ERROR CRÍTICO DE MYSQL: {e}")
         print(f"   Intentando insertar -> Producto: '{nombre_producto}', Cantidad: {cantidad}")
         
     except Exception as e:
-        print(f"🗄️ [SQL Real] 🔴 Error al escribir en la BD: {e}")
+        print(f"🗄️ [SQL Real] Error al escribir en la BD: {e}")
 
 # ==========================================
 # 4. ENDPOINT FASTAPI
@@ -166,7 +162,7 @@ async def recibir_escaneo(data: Payload):
     if not detecciones:
         raise HTTPException(status_code=500, detail="El modelo visual no devolvió detecciones válidas.")
         
-    # 2. Guardamos de verdad en tu Base de Datos (Cloud SQL)
+    # 2. Guardamos de verdad en la Base de Datos (Cloud SQL)
     for item in detecciones:
         nombre = item.get("producto", "")
         try:
@@ -180,7 +176,7 @@ async def recibir_escaneo(data: Payload):
     # 3. Pintamos las cajitas usando la escala 1000 corregida
     img_anotada_b64 = procesar_y_dibujar_anotaciones(data.imagen_base64, detecciones)
     
-    print("🚀 Procesamiento completado. Devolviendo imagen anotada al robot.")
+    print("Procesamiento completado. Devolviendo imagen anotada al robot.")
     return {
         "status": "ok",
         "detectado": detecciones,

@@ -27,5 +27,5 @@ class Config:
 
     @classmethod
     def get_db_connection_string(cls):
-        # Ejemplo para SQLAlchemy o Psycopg2
+        #  Compatible con SQLAlchemy o Psycopg2
         return f"postgresql://{cls.DB_USER}:{cls.DB_PASS}@{cls.DB_HOST}/{cls.DB_NAME}"

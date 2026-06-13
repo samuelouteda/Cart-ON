@@ -6,7 +6,7 @@ load_dotenv()
 
 class SQLManager:
     def __init__(self):
-        print("[SQLManager] 🗄️ Gestor de Base de Datos inicializado y fusionado.")
+        print("[SQLManager] Gestor de Base de Datos inicializado y fusionado.")
 
     def get_connection(self):
         """Crea y devuelve una nueva conexión limpia a la base de datos."""
@@ -19,14 +19,14 @@ class SQLManager:
             )
             return conn
         except Exception as e:
-            print(f"[SQLManager] 🔴 Error conectando a MySQL: {e}")
+            print(f"[SQLManager] Error conectando a MySQL: {e}")
             return None
 
     # ==========================================
-    # 🛒 MODO SUPERMERCADO (Ahora con BD Real)
+    # MODO SUPERMERCADO
     # ==========================================
     def get_product_info(self, item_name: str):
-        """Busca el producto en la BD real usando búsqueda aproximada."""
+        """Busca el producto en la BD usando búsqueda aproximada."""
         if not item_name or item_name == "producto desconocido":
             return None
             
@@ -47,7 +47,7 @@ class SQLManager:
             
             return resultado
         except Exception as e:
-            print(f"🔴 Error buscando el producto en SQL: {e}")
+            print(f"Error buscando el producto en SQL: {e}")
             return None
         finally:
             if conn.is_connected():
@@ -55,7 +55,7 @@ class SQLManager:
                 conn.close()
 
     # ==========================================
-    # 🛣️ MODO ESCUELA: UBICACIÓN DIRECTA
+    # MODO ESCUELA: UBICACIÓN DIRECTA
     # ==========================================
     def get_classroom_location(self, nombre_aula: str):
         """Devuelve las coordenadas exactas de un aula."""
@@ -70,7 +70,7 @@ class SQLManager:
             
             return resultado
         except Exception as e:
-            print(f"🔴 Error buscando el aula en SQL: {e}")
+            print(f"Error buscando el aula en SQL: {e}")
             return None
         finally:
             if conn.is_connected():
@@ -78,7 +78,7 @@ class SQLManager:
                 conn.close()
     
     # ==========================================
-    # 🗓️ MODO ESCUELA: HORARIO + COORDENADAS
+    # MODO ESCUELA: HORARIO + COORDENADAS
     # ==========================================
     def get_school_info(self, asignatura: str = None, grupo: str = None, hora: str = None):
         """Busca la clase y hace JOIN para llevarse también la ubicación del aula."""
@@ -88,7 +88,7 @@ class SQLManager:
         try:
             cursor = conn.cursor(dictionary=True)
             
-            # 🚀 El JOIN mágico entre horarios y aulas
+            # JOIN entre horarios y aulas
             query = """
                 SELECT h.*, a.latitud, a.longitud 
                 FROM horarios_uab h
@@ -97,7 +97,7 @@ class SQLManager:
             """
             params = []
             
-            # 🔥 Tu lógica de limpieza de palabras clave (¡muy buena!)
+            # Lógica de limpieza de palabras clave
             if asignatura and asignatura != "producto desconocido":
                 palabras = asignatura.lower().split()
                 palabras_clave = [p for p in palabras if p not in ["de", "por", "para", "la", "el", "los", "las"]]
@@ -121,7 +121,7 @@ class SQLManager:
             
             return resultados
         except Exception as e:
-            print(f"[SQLManager] 🔴 Error consultando UAB: {e}")
+            print(f"[SQLManager] Error consultando UAB: {e}")
             return []
         finally:
             if conn.is_connected():

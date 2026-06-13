@@ -5,12 +5,12 @@ from google.genai import types
 class HRI:
     """
     Cerebro NLP (Nube). 
-    Versión aislada para Google Cloud. Usando el nuevo SDK 'google.genai'.
+    Versión aislada para Google Cloud. Usando SDK 'google.genai'.
     """
     def __init__(self, name, event_bus, shared_sensor_stream, stt_tts_api_key, gemini_api_key):
         self.name = name
-        print(f"[{self.name}] 🧠 Inicializando motor NLP Gemini (Nuevo SDK) en el servidor Cloud...")
-        # 🚀 NUEVA SINTAXIS: Se crea un cliente instanciado
+        print(f"[{self.name}] Inicializando motor NLP Gemini (Nuevo SDK) en el servidor Cloud...")
+        # Cliente instanciado
         self.client = genai.Client(api_key=gemini_api_key)
 
     def parse_intent(self, raw_text):
@@ -41,7 +41,7 @@ class HRI:
         Petición del usuario: "{raw_text}"
         """
         try:
-            # 🚀 NUEVA SINTAXIS: Llamada a la API a través de client.models
+            # Llamada a la API a través de client.models
             respuesta = self.client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=prompt,
@@ -65,5 +65,5 @@ class HRI:
             return intent, item, quantity, reply
 
         except Exception as e:
-            print(f"[{self.name}] 🔴 ERROR en Gemini NLP: {e}")
+            print(f"[{self.name}] ERROR en Gemini NLP: {e}")
             return "unknown", None, 1, None

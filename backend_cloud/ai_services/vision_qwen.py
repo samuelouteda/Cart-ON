@@ -8,9 +8,9 @@ class VisionQwen:
         self.uab_token = Config.UAB_TOKEN
         try:
             self.client = OpenAI(api_key=self.uab_token, base_url="https://dcc-llm.uab.cat/bes2/v1")
-            print("[VisionQwen] 👁️ Motor Visual inicializado.")
+            print("[VisionQwen] Motor Visual inicializado.")
         except Exception as e:
-            print(f"[VisionQwen] 🔴 Error: {e}")
+            print(f"[VisionQwen] Error: {e}")
             self.client = None
 
     def identify_product(self, base64_image, mime_type="image/jpeg"):

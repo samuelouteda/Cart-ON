@@ -56,7 +56,7 @@ Responde a su comentario basándote EXCLUSIVAMENTE en lo que es claramente visib
 """
 
 # =====================================================================
-# 🧠 NUEVO PROMPT: GENERACIÓN DE RESPUESTA EMOCIONAL PARA LOS OJOS
+# GENERACIÓN DE RESPUESTA EMOCIONAL PARA LOS OJOS
 # =====================================================================
 PROMPT_GENERACION_RESPUESTA = """
 Eres Cart-ON, un robot asistente inteligente, empático y muy amigable. Tu objetivo es generar una respuesta en español basada en el comentario del usuario y el contexto interno de tus sistemas informáticos.

@@ -40,7 +40,7 @@ class PlannerCloud:
         self.lista_compra = {}
 
     # =========================================================================
-    # 🗣️ PIPELINE 1: VOZ, RECONOCIMIENTO DE INTENCIONES E INTERCEPTORES FSM
+    # PIPELINE 1: VOZ, RECONOCIMIENTO DE INTENCIONES E INTERCEPTORES FSM
     # =========================================================================
     def procesar_peticion_hri(self, texto_usuario: str, imagen_bytes: bytes, mime_type: str = "image/jpeg", lista_compra_local=None):
         if isinstance(lista_compra_local, dict):
@@ -49,10 +49,10 @@ class PlannerCloud:
         texto_bajo = texto_usuario.lower()
         
         # =======================================================
-        # 🛑 CORTOCIRCUITO DE SEGURIDAD (SHUTDOWN HARDCODED)
+        # CORTOCIRCUITO DE SEGURIDAD (SHUTDOWN HARDCODED)
         # =======================================================
         if "apágate" in texto_bajo or "apagar" in texto_bajo or "desconecta" in texto_bajo or "apagar sistemas" in texto_bajo:
-            print("🛑 [PlannerCloud] Comando de apagado detectado por cortocircuito.")
+            print("[PlannerCloud] Comando de apagado detectado por cortocircuito.")
             return crear_respuesta_cloud(
                 texto="Entendido. Apagando todos los sistemas físicos y lógicos. Buenas noches.",
                 estado_actual=self.estado_actual,
@@ -106,13 +106,13 @@ class PlannerCloud:
        # --- CAPA DE NEGOCIO A: MODO SUPERMERCADO ---
         if self.modo_entorno == "supermercado":
             
-            # 🛒 1. AÑADIR PRODUCTOS
+            # 1. AÑADIR PRODUCTOS
             if intent == "add" and item != "producto desconocido":
                 cantidad_final = quantity if quantity else 1
                 self.lista_compra[item] = self.lista_compra.get(item, 0) + cantidad_final
                 contexto_interno = f"Has añadido {cantidad_final} de {item} a la lista."
             
-            # 🗑️ 2. ELIMINAR PRODUCTOS
+            # 2. ELIMINAR PRODUCTOS
             elif intent in ["remove", "delete", "clear", "drop"]:
                 
                 # CASO A: VACIAR LA LISTA ENTERA ("Borra la lista", "Quítalo todo")
@@ -137,7 +137,7 @@ class PlannerCloud:
                 else:
                     contexto_interno = f"El usuario quiere borrar {item}, pero ese producto no está en su lista de la compra actual. Díselo con tacto."
 
-            # 📖 3. LEER LA LISTA
+            # 3. LEER LA LISTA
             elif intent == "read_list":
                 if self.lista_compra:
                     # Construimos un texto plano con los productos: "2 de leche, 1 de pan..."
@@ -147,7 +147,7 @@ class PlannerCloud:
                 else:
                     contexto_interno = "Dile al usuario amablemente que su lista de la compra está vacía."
             
-            # 🚀 4. LÓGICA DE RUTA MULTIPUNTO DEL SUPERMERCADO
+            # 4. LÓGICA DE RUTA MULTIPUNTO DEL SUPERMERCADO
             if quiere_moverse and self.lista_compra:
                 accion_final = "INICIAR_CONDUCCION"
                 contexto_interno = "Dile al usuario amablemente que vas a arrancar los motores para recorrer el supermercado y buscar los productos de su lista."
@@ -221,10 +221,10 @@ class PlannerCloud:
         )
 
     # =========================================================================
-    # 📸 PIPELINE 2: PROCESAMIENTO SILENCIOSO DE IMÁGENES DE INVENTARIO (VLM)
+    # PIPELINE 2: PROCESAMIENTO SILENCIOSO DE IMÁGENES DE INVENTARIO (VLM)
     # =========================================================================
     def procesar_escaneo_estanteria(self, imagen_base64: str, robot_x: float, robot_y: float):
-        print(f"👁️ [Vision] Procesando escaneo de estantería. Posición Robot: X={robot_x:.2f}, Y={robot_y:.2f}")
+        print(f"[Vision] Procesando escaneo de estantería. Posición Robot: X={robot_x:.2f}, Y={robot_y:.2f}")
         
         prompt = (
             "Eres el sistema de visión de un robot de inventario de supermercado.\n"
@@ -254,9 +254,9 @@ class PlannerCloud:
                 texto_crudo = texto_crudo[3:-3].strip()
                 
             detecciones = json.loads(texto_crudo)
-            print(f"👁️ [Vision] Detecciones del VLM: {detecciones}")
+            print(f"[Vision] Detecciones del VLM: {detecciones}")
         except Exception as e:
-            print(f"❌ [Vision] Error en la inferencia del VLM: {e}")
+            print(f"[Vision] Error en la inferencia del VLM: {e}")
             detecciones = []
 
         # 2. Guardar e indexar espacialmente en MySQL
@@ -279,9 +279,9 @@ class PlannerCloud:
                             cursor.execute(query, (n_limpio, nombre.strip(), cant, robot_x, robot_y, cant, robot_x, robot_y))
                     conn.commit()
                     cursor.close()
-                    print(f"🗄️ [SQL] Indexación espacial completada con éxito.")
+                    print(f"[SQL] Indexación espacial completada con éxito.")
                 except Exception as e:
-                    print(f"🗄️ [SQL] 🔴 Error insertando inventario: {e}")
+                    print(f"[SQL] Error insertando inventario: {e}")
                 finally:
                     conn.close()
 
@@ -310,6 +310,6 @@ class PlannerCloud:
                 _, buffer = cv2.imencode('.jpg', img)
                 img_anotada_b64 = base64.b64encode(buffer).decode('utf-8')
             except Exception as e:
-                print(f"🎨 [Vision] Error al renderizar anotaciones OpenCV: {e}")
+                print(f"[Vision] Error al renderizar anotaciones OpenCV: {e}")
 
         return {"status": "ok", "detectado": detecciones, "imagen_anotada": img_anotada_b64}
