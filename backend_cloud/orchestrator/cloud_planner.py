@@ -49,7 +49,7 @@ class PlannerCloud:
         texto_bajo = texto_usuario.lower()
         
         # 1. INTERCEPTOR ESTADO: MAPEO (Requiere contraseña de administrador)
-        if ("delta siete" in texto_bajo or "delta 7" in texto_bajo) and ("mapeo" in texto_bajo or "escanear" in texto_bajo):
+        if ("modo admin" in texto_bajo or "modo administrador" in texto_bajo or "admin" in texto_bajo) and ("mapeo" in texto_bajo or "escanear" in texto_bajo):
             msg = f"Contraseña Delta Siete aceptada. Iniciando protocolo de escaneo y mapeo autónomo en modo {self.modo_entorno}."
             return crear_respuesta_cloud(msg, self.estado_actual, "feliz", self.lista_compra, "start_mapping", accion_fisica="INICIAR_MAPEO")
         
