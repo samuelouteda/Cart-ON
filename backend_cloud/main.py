@@ -15,7 +15,7 @@ def health_check():
 @app.post("/api/v1/interaccion")
 async def endpoint_hri(
     frase_usuario: str = Form(...),
-    lista_compra: str = Form("{}"), # 📥 Recibimos la lista como string JSON
+    lista_compra: str = Form("{}"), # Recibimos la lista como string JSON
     image_file: UploadFile = File(...)
 ):
     try:
@@ -23,7 +23,7 @@ async def endpoint_hri(
         mime_type = image_file.content_type
         base64_image = base64.b64encode(imagen_bytes).decode('utf-8')
         
-        # 🔄 Transformamos el string JSON a un diccionario de Python
+        # Transformamos el string JSON a un diccionario de Python
         lista_compra_local = json.loads(lista_compra) if lista_compra else {}
         
         # 1. El orquestador decide, actualiza la lista y la IA redacta el texto
@@ -34,10 +34,10 @@ async def endpoint_hri(
             lista_compra_local=lista_compra_local
         )
         
-        # 🔥 EL CHIVATO ESTELAR: Verás el JSON de la lista de la compra actualizado aquí
-        print("\n" + "🟢"*15)
-        print(f"🕵️ CHIVATO 3 [FastAPI Final Output]:\n{respuesta_final}")
-        print("🟢"*15 + "\n")
+        # EL CHIVATO ESTELAR: Verás el JSON de la lista de la compra actualizado aquí
+        print("\n" + "="*15)
+        print(f"CHIVATO 3 [FastAPI Final Output]:\n{respuesta_final}")
+        print("="*15 + "\n")
         
         # 2. TTS: Convertimos ese texto en un archivo de audio MP3
         texto = respuesta_final.get("texto", "")
@@ -53,7 +53,7 @@ async def endpoint_hri(
 
         return respuesta_final
     except Exception as e:
-        print(f"🔴 Error crítico en FastAPI: {e}")
+        print(f"Error crítico en FastAPI: {e}")
         # Salvavidas para que la Raspberry no crashee si algo peta fuerte
         return {
             "status": "error", 
