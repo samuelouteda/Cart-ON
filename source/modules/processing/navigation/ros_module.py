@@ -106,20 +106,21 @@ class ROSModule(BaseModule):
                 if not self.shared_data.get("exploration_started", False):
                     self.shared_data["exploration_started"] = True
                     self.shared_data["pending_task"] = "start_exploration"
-                    print(f"{INDENT_OUTPUT}[{self.name}] Primer mapa rebut. Activant exploració...")
+                    print(f"{INDENT_OUTPUT}[{self.name}] First map received. Activating exploration...")
 
             # Guarda mapa quan tenim prous scans
-            if self.scan_counter >= self.MAX_SCANS and self.bridge.latest_map:
+            if self.scan_counter >= self.MAX_SCANS and not self.map_saved and self.bridge.latest_map:
+                print(f"{INDENT_OUTPUT}[{self.name}] Scan threshold reached ({self.MAX_SCANS}). Saving map backup...")
                 self.guardar_mapa_i_tancar()
             elif self.scan_counter >= self.MAX_SCANS:
                 if self.scan_counter % 100 == 0:
-                    print(f"{INDENT_OUTPUT}[{self.name}] Esperant /map... (Scans: {self.scan_counter})")
+                    print(f"{INDENT_OUTPUT}[{self.name}] Waiting for /map... (Scans: {self.scan_counter})")
                 self.scan_counter += 1
 
         time.sleep(0.01)
 
     def guardar_mapa_i_tancar(self):
-        print(f"{INDENT_OUTPUT}[{self.name}] Guardant mapa...")
+        print(f"{INDENT_OUTPUT}[{self.name}] Saving map...")
         self.map_saved = True
         time.sleep(2)
 
@@ -135,15 +136,13 @@ class ROSModule(BaseModule):
                text=True, timeout=15.0)
 
             if resultado.returncode == 0:
-                print(f"{INDENT_OUTPUT}[{self.name}] Mapa guardat a {ruta_mapa}")
+                print(f"{INDENT_OUTPUT}[{self.name}] Map successfully saved to {ruta_mapa}")
             else:
-                print(f"{INDENT_OUTPUT}[{self.name}] Error: {resultado.stderr}")
+                print(f"{INDENT_OUTPUT}[{self.name}] Error saving map: {resultado.stderr}")
         except subprocess.TimeoutExpired:
-            print(f"{INDENT_OUTPUT}[{self.name}] Timeout guardant mapa")
+            print(f"{INDENT_OUTPUT}[{self.name}] Timeout saving map.")
         except Exception as e:
             print(f"{INDENT_OUTPUT}[{self.name}] Error: {e}")
-
-        self.shutdown_nodes()
 
     def shutdown_nodes(self):
         if self.wheel_firm:

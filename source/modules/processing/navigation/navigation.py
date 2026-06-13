@@ -57,6 +57,13 @@ class Navigation(BaseModule):
         # 1. ÓRDENES FÍSICAS PROVENIENTES DEL HRI/NUBE
         # ========================================================
         if task.type == "START_DRIVING":
+            if self.exploring:
+                print(f"{INDENT_OUTPUT}[{self.name}] Deactivating exploration phase to start commercial route.")
+                self.exploring = False
+                if self.motion_controller:
+                    self.motion_controller.stop()
+                time.sleep(0.5)
+            
             datos_destino = task.data
             aula = datos_destino.get("aula")
             lat_gps = datos_destino.get("lat")
@@ -292,7 +299,7 @@ class Navigation(BaseModule):
         time.sleep(1) # Dejar que la inercia pare
         
         # 2. Girar 90º a la Derecha para encarar la estantería
-        print(f"{INDENT_OUTPUT}[{self.name}] Girando hacia la estantería...")
+        print(f"{INDENT_OUTPUT}[{self.name}] Turning towards the shelf...")
         if self.motion_controller and self.motion_controller.fw:
             # TUNEA ESTE SLEEP: Es el tiempo que tu Arduino tarda en girar 90º exactos a velocidad 120
             self.motion_controller.fw.giro_der(120)
@@ -303,13 +310,13 @@ class Navigation(BaseModule):
         
         # 3. Disparar evento para que vision.py haga la foto
         # 3. Disparar evento PARA EL PLANNER
-        print(f"{INDENT_OUTPUT}[{self.name}] Avisando al Planner de que la estantería está lista...")
+        print(f"{INDENT_OUTPUT}[{self.name}] Notifying Planner that the shelf is ready...")
         self.publish_event(Event(origin=self.name, type="SHELF_DETECTED"))
         # Nos quedamos en modo is_scanning_shelf = True hasta que vision.py grite "PHOTO_DONE"
 
     def _resume_after_scan(self):
         # 4. Deshacer el giro (-90º) para volver a mirar al frente
-        print(f"{INDENT_OUTPUT}[{self.name}] ↩Recuperando orientación original...")
+        print(f"{INDENT_OUTPUT}[{self.name}] Recovering original orientation...")
         if self.motion_controller and self.motion_controller.fw:
             # TUNEA ESTE SLEEP: Mismo tiempo que el giro anterior
             self.motion_controller.fw.giro_izq(120)
@@ -327,7 +334,7 @@ class Navigation(BaseModule):
         if success and not self.is_scanning_shelf:
             if self.destinations_queue:
                 # ¡QUEDAN PARADAS EN LA LISTA!
-                print(f"{INDENT_OUTPUT}[{self.name}] Llegamos a {self.target_item}. Esperando 5s para que cojas el producto...")
+                print(f"{INDENT_OUTPUT}[{self.name}] Arrived at {self.target_item}. Waiting 5s for item pickup...")
                 time.sleep(5) # Tiempo para coger el paquete de arroz
                 
                 # Cargar el siguiente de la cola
@@ -335,13 +342,13 @@ class Navigation(BaseModule):
                 self.target_item = siguiente_parada
                 self.shared_data["item_locations"][siguiente_parada] = (sx, sy)
                 
-                print(f"{INDENT_OUTPUT}[{self.name}] Moviéndonos a la siguiente parada: {self.target_item}...")
+                print(f"{INDENT_OUTPUT}[{self.name}] Moving to the next stop: {self.target_item}...")
                 with self._nav_lock:
                     self.nav_state = "calculating"
                     
             elif not self.returning_home:
                 # LISTA TERMINADA. VOLVEMOS A CASA
-                print(f"{INDENT_OUTPUT}[{self.name}] Destino final alcanzado. Esperando 5s antes de volver a la Base...")
+                print(f"{INDENT_OUTPUT}[{self.name}] Final destination reached. Waiting 5s before returning to Base...")
                 time.sleep(5) 
                 
                 self.returning_home = True
@@ -350,13 +357,13 @@ class Navigation(BaseModule):
                     self.shared_data["item_locations"] = {}
                 self.shared_data["item_locations"]["HOME_BASE"] = (self.home_x, self.home_y)
                 
-                print(f"{INDENT_OUTPUT}[{self.name}] Calculando ruta de vuelta...")
+                print(f"{INDENT_OUTPUT}[{self.name}] Calculating return path...")
                 with self._nav_lock:
                     self.nav_state = "calculating"
                     
             else:
                 # LLEGAMOS A CASA
-                print(f"{INDENT_OUTPUT}[{self.name}] He tornat a la Base! Missió completada.")
+                print(f"{INDENT_OUTPUT}[{self.name}] Returned to Base! Mission completed.")
                 self.publish_event(Event(type="PHYSICAL_ACTION_DONE", origin=self.name))
                 with self._nav_lock:
                     self.nav_state = "idle"
@@ -364,7 +371,7 @@ class Navigation(BaseModule):
                 self.returning_home = False
         else:
             if not self.is_scanning_shelf:
-                print(f"{INDENT_OUTPUT}[{self.name}] Navegació fallida o interrompuda.")
+                print(f"{INDENT_OUTPUT}[{self.name}] Navigation failed or interrupted.")
                 self.publish_event(Event(type="PHYSICAL_ACTION_DONE", origin=self.name))
                 with self._nav_lock:
                     self.nav_state = "idle"

@@ -6,7 +6,7 @@ import time
 import speech_recognition as sr
 from core.constants import INDENT_OUTPUT
 
-# 📸 IMPORTACIONES NUEVAS PARA LA VISIÓN
+# IMPORTACIONES NUEVAS PARA LA VISIÓN
 import cv2
 import base64
 import requests
@@ -26,7 +26,7 @@ class SensoryModule(BaseModule):
         self.data_task_bus = data_task_bus
         self.shared_data = shared_data
         
-        # 📸 ATRIBUTOS DE VISIÓN
+        # ATRIBUTOS DE VISIÓN
         self.cloud_scan_url = "https://cart-on-api-225606614592.europe-west1.run.app/api/v1/escaneo_inventario"
         self.is_scanning = False
         
@@ -46,7 +46,7 @@ class SensoryModule(BaseModule):
         self.data_stream['audio'] = self.capture_audio()
 
     # =======================================================
-    # 📸 NUEVAS FUNCIONES DE VISIÓN INYECTADAS
+    # NUEVAS FUNCIONES DE VISIÓN INYECTADAS
     # =======================================================
     def handle_task(self, task):
         if task.type == "shutdown":
@@ -54,7 +54,7 @@ class SensoryModule(BaseModule):
         elif task.type == "TAKE_INVENTORY_PHOTO":
             if not self.is_scanning:
                 self.is_scanning = True
-                print(f"{INDENT_OUTPUT}[{self.name}] 📸 ¡Orden de foto! Disparando cámara en segundo plano...")
+                print(f"{INDENT_OUTPUT}[{self.name}] ¡Orden de foto! Disparando cámara en segundo plano...")
                 # Lanzamos la cámara en un HILO APARTE para no bloquear la escucha del micrófono
                 threading.Thread(target=self._procesar_escaneo, daemon=True).start()
 
@@ -73,7 +73,7 @@ class SensoryModule(BaseModule):
         cap.release()
 
         if not ret:
-            print(f"{INDENT_OUTPUT}[{self.name}] 🔴 Error: No se pudo acceder a la cámara.")
+            print(f"{INDENT_OUTPUT}[{self.name}] Error: No se pudo acceder a la cámara.")
             self._finalizar_escaneo()
             return
 
@@ -88,32 +88,32 @@ class SensoryModule(BaseModule):
             "robot_y": robot_y
         }
 
-        print(f"{INDENT_OUTPUT}[{self.name}] ☁️ Enviando foto a Qwen en la nube...")
+        print(f"{INDENT_OUTPUT}[{self.name}] Enviando foto a Qwen en la nube...")
         try:
             res = requests.post(self.cloud_scan_url, json=payload, timeout=20)
             res.raise_for_status()
             datos = res.json()
             
             if "imagen_anotada" in datos and datos["imagen_anotada"]:
-                print(f"{INDENT_OUTPUT}[{self.name}] ✅ Escaneo OK. Productos detectados: {len(datos.get('detectado', []))}")
+                print(f"{INDENT_OUTPUT}[{self.name}] Escaneo OK. Productos detectados: {len(datos.get('detectado', []))}")
                 self.publish_event(Event(
                     origin=self.name, 
                     type="UPDATE_DISPLAY_IMAGE", 
                     data={"image_b64": datos["imagen_anotada"], "title": "ESCANEANDO ESTANTERÍA..."}
                 ))
         except Exception as e:
-            print(f"{INDENT_OUTPUT}[{self.name}] 🔴 Error comunicando con el Cloud: {e}")
+            print(f"{INDENT_OUTPUT}[{self.name}] Error comunicando con el Cloud: {e}")
 
         # 4. Avisamos al navegador de que ya hemos acabado
         self._finalizar_escaneo()
 
     def _finalizar_escaneo(self):
-        print(f"{INDENT_OUTPUT}[{self.name}] 🚀 Proceso visual terminado. Liberando motores.")
+        print(f"{INDENT_OUTPUT}[{self.name}] Proceso visual terminado. Liberando motores.")
         self.publish_event(Event(origin=self.name, type="PHOTO_DONE"))
         self.is_scanning = False
 
     # =======================================================
-    # 🏃 EL BUCLE PRINCIPAL (MODIFICADO SUAVEMENTE)
+    # BUCLE PRINCIPAL
     # =======================================================
     def run(self):
         self.data_stream['audio'] = None
@@ -130,7 +130,7 @@ class SensoryModule(BaseModule):
             try:
                 task = self.task_queue.get_nowait()
                 if hasattr(task, 'type'):
-                    # 🚀 EN VEZ DE SOLO MIRAR "SHUTDOWN", LE PASAMOS LA TAREA AL HANDLE_TASK
+                    # EN VEZ DE SOLO MIRAR "SHUTDOWN", LE PASAMOS LA TAREA AL HANDLE_TASK
                     self.handle_task(task)
             except Empty:
                 pass

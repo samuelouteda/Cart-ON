@@ -36,7 +36,7 @@ def main():
     api_key = os.getenv("API_KEY")
 
     if not api_key:
-        print("Error critico: falta la API_KEY (Voz STT/TTS) en el archivo .env")
+        print("Critical error: Missing API_KEY (Voice STT/TTS) in the .env file")
         exit()
 
     # ==================================================================================================
