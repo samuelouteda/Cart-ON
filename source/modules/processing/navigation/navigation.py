@@ -4,6 +4,10 @@ from core.constants import INDENT_OUTPUT
 from modules.processing.navigation.path_planner import PathPlanner
 from modules.processing.navigation.frontier_explorer import FrontierExplorer
 from modules.actuation.motion_controller import MotionController
+
+# 🌍 IMPORTAMOS EL TRADUCTOR DE COORDENADAS
+from modules.processing.navigation.coordinate_transformer import CoordinateTransformer
+
 import threading
 import time
 import math
@@ -27,6 +31,15 @@ class Navigation(BaseModule):
         self.wheel_firm = None
         self.motion_controller = None
 
+        # 🏠 VARIABLES DE "RETURN TO HOME"
+        self.home_x = 0.0
+        self.home_y = 0.0
+        self.returning_home = False
+
+        # 🗺️ CONFIGURACIÓN DEL ORIGEN GPS (Ej: Puerta principal del edificio)
+        # ⚠️ Cambia estos valores por las coordenadas exactas de donde arranca tu SLAM
+        self.gps_transformer = CoordinateTransformer(origin_lat=41.502, origin_lon=2.104, yaw_offset_rad=0.0)
+
     def _init_motion(self):
         wf = self.shared_data.get("wheel_firm", None)
         if wf:
@@ -35,21 +48,74 @@ class Navigation(BaseModule):
             print(f"[{self.name}] MotionController inicialitzat.")
 
     def handle_task(self, task):
-        if task.type == "navigate_to_item":
+        # ========================================================
+        # 🚀 1. ÓRDENES FÍSICAS PROVENIENTES DEL HRI/NUBE
+        # ========================================================
+        if task.type == "START_DRIVING":
+            datos_destino = task.data
+            aula = datos_destino.get("aula")
+            lat_gps = datos_destino.get("lat")
+            lng_gps = datos_destino.get("lng")
+            
+            if aula and lat_gps and lng_gps:
+                # 🌍 1. TRADUCIR COORDENADAS (GPS -> Metros del LiDAR)
+                local_x, local_y = self.gps_transformer.gps_to_local(lat_gps, lng_gps)
+                
+                # 🏠 2. GUARDAR "HOME BASE"
+                self._update_pose_from_odom()
+                if self.motion_controller:
+                    self.home_x = self.motion_controller.current_x
+                    self.home_y = self.motion_controller.current_y
+
+                # 🎯 3. INYECTAR DESTINO EN EL SISTEMA
+                self.target_item = aula
+                if "item_locations" not in self.shared_data:
+                    self.shared_data["item_locations"] = {}
+                self.shared_data["item_locations"][aula] = (local_x, local_y)
+
+                # 🏎️ 4. ARRANCAR NAVEGACIÓN
+                with self._nav_lock:
+                    self.nav_state = "calculating"
+                self.nav_start_time = time.time()
+                self.returning_home = False
+                print(f"{INDENT_OUTPUT}[{self.name}] 🚗 IA ordena ir a \"{self.target_item}\" (Local: X={local_x:.2f}, Y={local_y:.2f})...")
+            else:
+                print(f"{INDENT_OUTPUT}[{self.name}] ⚠️ START_DRIVING sense coordenades clares.")
+
+        elif task.type == "START_MAPPING":
+            print(f"{INDENT_OUTPUT}[{self.name}] 🧭 IA autoritza mapeig. Iniciant explorador de fronteres...")
+            self.exploring = True
+            self.frontier_explorer.reset()
+            self._exploration_step()
+            
+        elif task.type == "EMERGENCY_STOP":
+            print(f"{INDENT_OUTPUT}[{self.name}] 🛑 ¡FRENADA D'EMERGÈNCIA! Ordre del HRI.")
+            if self.motion_controller:
+                self.motion_controller.stop()
+            with self._nav_lock:
+                self.nav_state = "idle"
+            self.exploring = False
+            self.returning_home = False
+
+        # ========================================================
+        # ⚙️ 2. ÓRDENES INTERNAS ANTIGUAS
+        # ========================================================
+        elif task.type == "navigate_to_item":
             self.target_item = task.data['item']
             with self._nav_lock:
                 self.nav_state = "calculating"
             self.nav_start_time = time.time()
+            self.returning_home = False
             print(f"{INDENT_OUTPUT}[{self.name}] Calculant ruta a \"{self.target_item}\"...")
 
         elif task.type == "start_exploration":
-            print(f"{INDENT_OUTPUT}[{self.name}] Iniciant exploració autònoma...")
+            print(f"{INDENT_OUTPUT}[{self.name}] Iniciant exploració autònoma (Interna)...")
             self.exploring = True
             self.frontier_explorer.reset()
             self._exploration_step()
 
         elif task.type == "stop_exploration":
-            print(f"{INDENT_OUTPUT}[{self.name}] Aturant exploració.")
+            print(f"{INDENT_OUTPUT}[{self.name}] Aturant exploració (Interna).")
             self.exploring = False
             if self.motion_controller:
                 self.motion_controller.stop()
@@ -65,12 +131,10 @@ class Navigation(BaseModule):
             self.motion_controller.update_pose(x, y, theta)
 
     def loop(self):
-        # Inicialitza motion controller quan wheel_firm estigui disponible
         if self.motion_controller is None:
             self._init_motion()
             return
 
-        # Comprova tasques pendents via shared_data
         pending = self.shared_data.get("pending_task", None)
         if pending == "start_exploration":
             print(f"[{self.name}] Tasca pendent rebuda: start_exploration")
@@ -80,7 +144,7 @@ class Navigation(BaseModule):
             self._exploration_step()
 
         # -------------------------------------------------------------
-        # PART 1: DETECCIÓ D'OBSTACLES
+        # PART 1: DETECCIÓ D'OBSTACLES (LASER)
         # -------------------------------------------------------------
         punts_laser = self.shared_data.get("scan", None)
         if punts_laser:
@@ -116,7 +180,7 @@ class Navigation(BaseModule):
                                 break
 
         # -------------------------------------------------------------
-        # PART 2: MÀQUINA D'ESTATS
+        # PART 2: MÀQUINA D'ESTATS (RUTAS)
         # -------------------------------------------------------------
         with self._nav_lock:
             current_state = self.nav_state
@@ -159,22 +223,43 @@ class Navigation(BaseModule):
             self._update_pose_from_odom()
 
     def _execute_path(self, waypoints):
+        # El MotionController arranca los motores hasta terminar los waypoints
         success = self.motion_controller.follow_path(waypoints)
+        
         if success:
-            print(f"{INDENT_OUTPUT}[{self.name}] Destinació assolida!")
-            self.publish_event(
-                Event(type="navigation_complete", data=self.target_item, origin=self.name)
-            )
+            if not self.returning_home:
+                # LLEGAMOS AL AULA
+                print(f"{INDENT_OUTPUT}[{self.name}] Destinació assolida! Esperant 5 segons abans de tornar a casa...")
+                time.sleep(5) # Tiempo para que la persona vea la pantalla / escanee QR
+                
+                # PREPARAMOS EL RETORNO
+                self.returning_home = True
+                self.target_item = "HOME_BASE"
+                if "item_locations" not in self.shared_data:
+                    self.shared_data["item_locations"] = {}
+                self.shared_data["item_locations"]["HOME_BASE"] = (self.home_x, self.home_y)
+                
+                with self._nav_lock:
+                    self.nav_state = "calculating"
+            else:
+                # LLEGAMOS A CASA
+                print(f"{INDENT_OUTPUT}[{self.name}] 🏠 He tornat a la Base! Missió completada.")
+                self.publish_event(Event(type="PHYSICAL_ACTION_DONE", origin=self.name)) # HRI VUELVE A HABLAR
+                with self._nav_lock:
+                    self.nav_state = "idle"
+                self.target_item = None
+                self.returning_home = False
         else:
-            print(f"{INDENT_OUTPUT}[{self.name}] Navegació fallida.")
-            self.publish_event(
-                Event(type="navigation_failed", data=self.target_item, origin=self.name)
-            )
-        with self._nav_lock:
-            self.nav_state = "idle"
-        self.target_item = None
+            # FALLO EN RUTA (Obstáculo, emergency stop, etc.)
+            print(f"{INDENT_OUTPUT}[{self.name}] Navegació fallida o interrompuda.")
+            self.publish_event(Event(type="PHYSICAL_ACTION_DONE", origin=self.name)) # HRI VUELVE A HABLAR (Para avisar)
+            with self._nav_lock:
+                self.nav_state = "idle"
+            self.target_item = None
+            self.returning_home = False
 
     def _exploration_step(self):
+        # (Se queda exactamente igual que tu código original)
         def _step():
             while self.exploring:
                 mapa = self.shared_data.get("map", None)
@@ -194,9 +279,7 @@ class Navigation(BaseModule):
                 if waypoints is None:
                     print(f"{INDENT_OUTPUT}[{self.name}] Exploració completada!")
                     self.exploring = False
-                    self.publish_event(
-                        Event(type="exploration_complete", origin=self.name)
-                    )
+                    self.publish_event(Event(type="exploration_complete", origin=self.name))
                     break
 
                 elif waypoints == "no_route":
