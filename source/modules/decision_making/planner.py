@@ -1,6 +1,7 @@
 from queue import Empty
 from core.base_module import BaseModule
 from core.task import Task
+from core.event import Event
 import time
 
 class Planner(BaseModule):
@@ -110,7 +111,12 @@ class Planner(BaseModule):
 
         elif type == "CLOUD_RESPONSE":
             print(f"[{self.name}] Processing data returned by Cart-ON API.")
+            
             if isinstance(data, dict):
+                # 🧹 1. IMPRESIÓN LIMPIA (Sin el audio Base64 que ensucia la terminal)
+                datos_limpios = {k: v for k, v in data.items() if k != 'audio_b64'}
+                print(f"[{self.name}] 📦 RAW DATA NUBE: {datos_limpios}")
+
                 nuevo_estado = data.get("estado_actual")
                 if nuevo_estado and nuevo_estado != self.fase_actual:
                     print(f"[{self.name}] Phase transition: {self.fase_actual} -> {nuevo_estado}")
@@ -125,15 +131,26 @@ class Planner(BaseModule):
                 if "HRI" in self.modules:
                     self.modules["HRI"].add_task(Task(type="SPEAK", data=data))
 
-                # 🚀 NUEVO: Capturamos 'accion_fisica' (conducción multipunto y mapeo)
-                accion = data.get("accion_fisica", "NINGUNA")
-                comando = data.get("comando_robot") # Por si queda algo legacy
+                # 🚀 2. CAPTURA A PRUEBA DE BALAS (Forzamos mayúsculas para evitar fallos de Qwen)
+                accion = str(data.get("accion_fisica", "NINGUNA")).upper()
+                comando = str(data.get("comando_robot", "NINGUNA")).upper()
 
+                # =======================================================
+                # 🛑 BOTÓN DE APAGADO POR VOZ 
+                # =======================================================
+                if accion == "SHUTDOWN" or comando == "SHUTDOWN":
+                    print(f"[{self.name}] 💀 Qwen ha ordenado el APAGADO del sistema. Ejecutando...")
+                    # Inyectamos el evento de apagado en el bus para morir con honor
+                    self.event_queue.put(Event(type="shutdown", origin="Cloud"))
+                    return
+
+                # =======================================================
+                # 🛞 ÓRDENES DE MOVIMIENTO
+                # =======================================================
                 if "Navigation" in self.modules:
                     if accion == "INICIAR_MAPEO" or comando == "START_SLAM":
                         self.modules["Navigation"].add_task(Task(type="START_MAPPING"))
                     elif accion == "INICIAR_CONDUCCION" or comando == "START_NAVIGATION":
-                        # Pasamos los datos enteros (ruta_supermercado, lat, lng, aula)
                         self.modules["Navigation"].add_task(Task(type="START_DRIVING", data=data))
                     elif comando == "STOP_MOTORS":
                         self.modules["Navigation"].add_task(Task(type="STOP_MOTORS"))
@@ -150,6 +167,7 @@ class Planner(BaseModule):
             finally:
                 self.event_queue.task_done()
         
+        # Lógica de seguridad: Reintento de ruta tras obstáculo
         if self.replan_time and time.time() >= self.replan_time:
             if self.current_item and "Navigation" in self.modules:
                 print(f"[{self.name}] Security timeout reached. Recalculating path to: {self.current_item}")

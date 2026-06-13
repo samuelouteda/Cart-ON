@@ -48,6 +48,21 @@ class PlannerCloud:
         
         texto_bajo = texto_usuario.lower()
         
+        # =======================================================
+        # 🛑 CORTOCIRCUITO DE SEGURIDAD (SHUTDOWN HARDCODED)
+        # =======================================================
+        if "apágate" in texto_bajo or "apagar" in texto_bajo or "desconecta" in texto_bajo or "apagar sistemas" in texto_bajo:
+            print("🛑 [PlannerCloud] Comando de apagado detectado por cortocircuito.")
+            return crear_respuesta_cloud(
+                texto="Entendido. Apagando todos los sistemas físicos y lógicos. Buenas noches.",
+                estado_actual=self.estado_actual,
+                emocion="feliz",
+                lista_compra=self.lista_compra,
+                intent="shutdown",
+                accion_fisica="SHUTDOWN"
+            )
+        # =======================================================
+
         # 1. INTERCEPTOR ESTADO: MAPEO (Requiere contraseña de administrador)
         if ("modo admin" in texto_bajo or "modo administrador" in texto_bajo or "admin" in texto_bajo) and ("mapeo" in texto_bajo or "escanear" in texto_bajo):
             msg = f"Contraseña Delta Siete aceptada. Iniciando protocolo de escaneo y mapeo autónomo en modo {self.modo_entorno}."
