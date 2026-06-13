@@ -50,9 +50,7 @@ class SensoryModule(BaseModule):
 
     def loop(self):
         pass
-    # =======================================================
-    # NUEVAS FUNCIONES DE VISIÓN INYECTADAS
-    # =======================================================
+
     def handle_task(self, task):
         if task.type == "shutdown":
             self.running = False
@@ -117,9 +115,6 @@ class SensoryModule(BaseModule):
         self.publish_event(Event(origin=self.name, type="PHOTO_DONE"))
         self.is_scanning = False
 
-    # =======================================================
-    # BUCLE PRINCIPAL
-    # =======================================================
     def run(self):
         self.data_stream['audio'] = None
         self.data_stream['distance'] = 5
@@ -138,7 +133,6 @@ class SensoryModule(BaseModule):
             try:
                 task = self.task_queue.get(timeout=0.05)
                 if hasattr(task, 'type'):
-                    # EN VEZ DE SOLO MIRAR "SHUTDOWN", LE PASAMOS LA TAREA AL HANDLE_TASK
                     self.handle_task(task)
             except Empty:
                 pass

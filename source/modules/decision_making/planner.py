@@ -49,9 +49,7 @@ class Planner(BaseModule):
             self.running = False
             return
 
-        # =======================================================
-        # ESCANEO DE ESTANTERÍAS
-        # =======================================================
+        # Estructura de control para manejar eventos específicos
         elif type == "SHELF_DETECTED":
             print(f"[{self.name}] Navigator reported shelf. Ordering Sensory to take photo...")
             if "Sensory" in self.modules:
@@ -113,10 +111,6 @@ class Planner(BaseModule):
             print(f"[{self.name}] Processing data returned by Cart-ON API.")
             
             if isinstance(data, dict):
-                # 🧹 1. IMPRESIÓN LIMPIA (Sin el audio Base64 que ensucia la terminal)
-                datos_limpios = {k: v for k, v in data.items() if k != 'audio_b64'}
-                print(f"[{self.name}] 📦 RAW DATA NUBE: {datos_limpios}")
-
                 nuevo_estado = data.get("estado_actual")
                 if nuevo_estado and nuevo_estado != self.fase_actual:
                     print(f"[{self.name}] Phase transition: {self.fase_actual} -> {nuevo_estado}")
@@ -131,22 +125,18 @@ class Planner(BaseModule):
                 if "HRI" in self.modules:
                     self.modules["HRI"].add_task(Task(type="SPEAK", data=data))
 
-                # 🚀 2. CAPTURA A PRUEBA DE BALAS (Forzamos mayúsculas para evitar fallos de Qwen)
+                # Forzamos la replanificación si el Cloud nos indica un nuevo item a buscar
                 accion = str(data.get("accion_fisica", "NINGUNA")).upper()
                 comando = str(data.get("comando_robot", "NINGUNA")).upper()
 
-                # =======================================================
-                # 🛑 BOTÓN DE APAGADO POR VOZ 
-                # =======================================================
+                # Boton apagado
                 if accion == "SHUTDOWN" or comando == "SHUTDOWN":
                     print(f"[{self.name}] 💀 Qwen ha ordenado el APAGADO del sistema. Ejecutando...")
                     # Inyectamos el evento de apagado en el bus para morir con honor
                     self.event_queue.put(Event(type="shutdown", origin="Cloud"))
                     return
 
-                # =======================================================
-                # 🛞 ÓRDENES DE MOVIMIENTO
-                # =======================================================
+                # Ordenes movimiento
                 if "Navigation" in self.modules:
                     if accion == "INICIAR_MAPEO" or comando == "START_SLAM":
                         self.modules["Navigation"].add_task(Task(type="START_MAPPING"))

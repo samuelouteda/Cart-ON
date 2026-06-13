@@ -31,18 +31,18 @@ class Navigation(BaseModule):
         self.wheel_firm = None
         self.motion_controller = None
 
-        # VARIABLES DE "RETURN TO HOME"
+        # Variables para la gestión de paradas y retorno a casa
         self.home_x = 0.0
         self.home_y = 0.0
         self.returning_home = False
         
         self.destinations_queue = [] # Cola paradas super
 
-        # VARIABLES DE ESCANEO DE ESTANTERÍAS (OPCIÓN B)
+        # Variable para controlar el 'cooldown' de escaneo de estanterías
         self.is_scanning_shelf = False
         self.last_scan_time = 0.0
 
-        # CONFIGURACIÓN DEL ORIGEN GPS (Ej: Puerta principal del edificio)
+        # Configuración del traductor de coordenadas GPS a local (para modo universitario)
         self.gps_transformer = CoordinateTransformer(origin_lat=41.502, origin_lon=2.104, yaw_offset_rad=0.0)
 
     def _init_motion(self):
@@ -53,9 +53,7 @@ class Navigation(BaseModule):
             print(f"{INDENT_OUTPUT}[{self.name}] MotionController inicialitzat.")
 
     def handle_task(self, task):
-        # ========================================================
-        # 1. ÓRDENES FÍSICAS PROVENIENTES DEL HRI/NUBE
-        # ========================================================
+        # Ordenes HRI/Planner para iniciar rutas, exploración o escaneo
         if task.type == "START_DRIVING":
             if self.exploring:
                 print(f"{INDENT_OUTPUT}[{self.name}] Deactivating exploration phase to start commercial route.")
@@ -92,7 +90,7 @@ class Navigation(BaseModule):
                 curr_x, curr_y = self.home_x, self.home_y
                 pendientes = ruta_supermercado.copy()
                 
-                # Algoritmo de Vecino Más Cercano (Nearest Neighbor)
+                # Algoritmo Nearest Neighbor
                 while pendientes:
                     mas_cercano = min(pendientes, key=lambda p: math.hypot(p['x'] - curr_x, p['y'] - curr_y))
                     self.destinations_queue.append((mas_cercano['producto'], mas_cercano['x'], mas_cercano['y']))
@@ -128,17 +126,13 @@ class Navigation(BaseModule):
             self.returning_home = False
             self.is_scanning_shelf = False
 
-        # ========================================================
-        # 2. ÓRDENES DEL PLANNER PARA REANUDAR ESCANEO
-        # ========================================================
+        # Ordenes de reanudación tras escaneo de estantería
         elif task.type == "RESUME_AFTER_PHOTO":
             if self.is_scanning_shelf:
                 print(f"{INDENT_OUTPUT}[{self.name}] El Planner ordena reanudar. Retomando ruta...")
                 threading.Thread(target=self._resume_after_scan, daemon=True).start()
 
-        # ========================================================
-        # 3. ÓRDENES INTERNAS ANTIGUAS
-        # ========================================================
+        # Ordenes de navegación a un producto específico (modo supermercado)
         elif task.type == "navigate_to_item":
             self.target_item = task.data['item']
             with self._nav_lock:
@@ -179,9 +173,7 @@ class Navigation(BaseModule):
             self.frontier_explorer.reset()
             self._exploration_step()
 
-        # -------------------------------------------------------------
-        # PART 1: DETECCIÓ D'OBSTACLES I ESTANTERÍES (LASER)
-        # -------------------------------------------------------------
+        # Parte 1: Detección de estanterías y obstáculos críticos
         punts_laser = self.shared_data.get("scan", None)
         if punts_laser:
             # A) DETECCIÓN DE ESTANTERÍA (Solo si exploramos, no estamos escaneando y ha pasado el cooldown de 20s)
@@ -203,7 +195,7 @@ class Navigation(BaseModule):
                                 if 300 < dist < 1500:
                                     puntos_derecha.append(dist)
                 
-                # Geometría Plana: Si hay más de 10 puntos en ese sector y la diferencia entre ellos es menor a 150mm
+                # Si hay más de 10 puntos en ese sector y la diferencia entre ellos es menor a 150mm
                 if len(puntos_derecha) > 10:
                     varianza = max(puntos_derecha) - min(puntos_derecha)
                     if varianza < 150: 
@@ -243,9 +235,7 @@ class Navigation(BaseModule):
                                                 self.nav_state = "idle"
                                     break
 
-        # -------------------------------------------------------------
-        # PART 2: MÀQUINA D'ESTATS (RUTAS)
-        # -------------------------------------------------------------
+        # Máquina de estats
         with self._nav_lock:
             current_state = self.nav_state
 
@@ -286,9 +276,7 @@ class Navigation(BaseModule):
         elif current_state == "navigating":
             self._update_pose_from_odom()
 
-    # ========================================================
-    # LA COREOGRAFÍA DE ESCANEO ("EL BAILE" CON ODOMETRÍA)
-    # ========================================================
+    # Movimiento del robot hacia estanteria
     def _execute_shelf_scan_maneuver(self):
         self.is_scanning_shelf = True
         

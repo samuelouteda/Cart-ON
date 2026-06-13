@@ -5,9 +5,7 @@ import os
 import sys
 import time
 
-# ==================================================================================================
-# 🐧 ESCUDO DE HARDWARE (Linux Mode)
-# ==================================================================================================
+# Detectamos si estamos en Linux para decidir si inicializamos ROS y el hardware físico
 linux_mode = False
 if sys.platform.startswith("linux"):
     linux_mode = True
@@ -34,15 +32,13 @@ if linux_mode:
     from modules.processing.navigation.wheel_odom import WheelOdom
 
 def main():
-    print("🤖 [MAIN] Iniciando Cart-ON OS...")
+    print("[MAIN] Iniciando Cart-ON...")
     if linux_mode:
-        print("🐧 [MAIN] Modo Linux detectado. Hardware y ROS activados.")
+        print("[MAIN] Modo Linux. Hardware y ROS activados.")
     else:
-        print("🪟 [MAIN] Modo Simulación (Windows/Mac) detectado. Hardware físico deshabilitado.")
+        print("[MAIN] Modo Simulación. Hardware físico deshabilitado.")
 
-    # ==================================================================================================
-    # 🔑 1. INICIALIZACIÓN DE VARIABLES Y CLAVES
-    # ==================================================================================================
+    # Inicialización de colas y estructuras compartidas
     event_bus = Queue()
     data_task_bus = Queue()
     shared_sensor_stream = {}
@@ -52,15 +48,13 @@ def main():
     api_key = os.getenv("API_KEY")
 
     if not api_key:
-        print("🔴 [MAIN] Error Crítico: Falta la API_KEY en el archivo .env")
+        print("[MAIN] Error: Falta la API_KEY en el archivo .env")
         exit()
 
-    # ==================================================================================================
-    # ⚙️ 2. INICIALIZACIÓN DE HARDWARE FÍSICO (SOLO LINUX)
-    # ==================================================================================================
+    # Inicialización del hardware físico (solo en Linux)
     wheel_firm = None
     if linux_mode:
-        print("🔌 [MAIN] Conectando con Arduino por Serial...")
+        print("[MAIN] Conectando con Arduino por Serial...")
         try:
             wheel_firm = WheelFirm(port="/dev/ttyACM0", baud=115200)
             shared_data["wheel_firm"] = wheel_firm 
@@ -68,19 +62,17 @@ def main():
             wheel_odom = WheelOdom()
             wheel_firm.set_odom_node(wheel_odom)
             shared_data["odom"] = wheel_odom
-            print("✅ [MAIN] Odometría vinculada a los encoders.")
+            print("[MAIN] Odometría vinculada a los encoders.")
             
             time.sleep(2) # Tiempo para que el Arduino respire tras abrir el puerto
             
             if not wheel_firm.is_connected():
-                print("🔴 [MAIN] ADVERTENCIA: Arduino no conectado. Los motores no funcionarán.")
+                print("[MAIN] ADVERTENCIA: Arduino no conectado. Los motores no funcionarán.")
         except Exception as e:
-            print(f"⚠️ [MAIN] Problema inicializando hardware físico: {e}")
+            print(f"[MAIN] Problema inicializando hardware físico: {e}")
 
-    # ==================================================================================================
-    # 🧩 3. INSTANCIACIÓN DE MÓDULOS DE SOFTWARE
-    # ==================================================================================================
-    print("📦 [MAIN] Instanciando módulos de procesamiento...")
+    # Instanciación de módulos de procesamiento
+    print("[MAIN] Instanciando módulos de procesamiento...")
     
     planner = Planner(event_bus)
     navigation = Navigation("Navigation", event_bus, shared_sensor_stream, data_task_bus, shared_data)
@@ -89,9 +81,7 @@ def main():
     human_interaction = HRI("HRI", event_bus, shared_sensor_stream, api_key, data_task_bus, shared_data)
     data_manager = DataModule("Data", event_bus, data_task_bus, shared_data)
 
-    # ==================================================================================================
-    # 🔗 4. ACOPLAMIENTO AL ORQUESTADOR
-    # ==================================================================================================
+    # Agregamos los módulos al Planner para que pueda orquestarlos
     planner.append_modules([navigation, sensory, human_interaction, data_manager])
 
     if linux_mode:
@@ -99,12 +89,10 @@ def main():
             ros_module = ROSModule("ROS", event_bus, shared_data)
             planner.append_single_module(ros_module)
         except Exception as e:
-            print(f"⚠️ [MAIN] Error iniciando el módulo ROS: {e}")
+            print(f"[MAIN] Error iniciando el módulo ROS: {e}")
 
-    # ==================================================================================================
-    # 🚀 5. INICIO DE HILOS
-    # ==================================================================================================
-    print("🔥 [MAIN] Arrancando hilos paralelos...")
+    # Iniciamos los hilos de los módulos
+    print("[MAIN] Arrancando hilos paralelos...")
     planner.start()
     navigation.start()
     sensory.start()
@@ -114,20 +102,17 @@ def main():
     if linux_mode and 'ros_module' in locals():
         ros_module.start()
 
-    print("✅ [MAIN] SISTEMA CART-ON TOTALMENTE OPERATIVO. Pulsa Ctrl+C para apagar.")
+    print("[MAIN] Sistema todo listo. Cart-ON en marcha.")
 
-    # ==================================================================================================
-    # ♾️ 6. BUCLE DE VIGILANCIA Y APAGADO LIMPIO
-    # ==================================================================================================
+    # Bucle principal que mantiene vivo el proceso y supervisa el Planner
     try:
-        # 🚀 EL CAMBIO ESTÁ AQUÍ: El main vigila si el Planner sigue vivo
         while planner.running: 
             time.sleep(1)
             
-        print("\n🛑 [MAIN] El Orquestador ha ordenado el apagado. Saliendo del bucle principal...")
+        print("\n[MAIN] El Orquestador ha ordenado el apagado")
             
     except KeyboardInterrupt:
-        print("\n🛑 [MAIN] Apagado manual detectado (Ctrl+C). Iniciando protocolo de parada...")
+        print("\n[MAIN] Apagado manual detectado")
         
     finally:
         print("🧹 [MAIN] Cerrando módulos de forma segura...")
@@ -143,7 +128,7 @@ def main():
 
             # Apagado del Hardware Físico
             if linux_mode:
-                print("🛑 [MAIN] Cortando energía a los motores y apagando ROS...")
+                print("[MAIN] Apagando ROS...")
                 if wheel_firm:
                     wheel_firm.close()
                 if 'ros_module' in locals():
@@ -151,9 +136,9 @@ def main():
                 rclpy.shutdown()
                 
         except Exception as e:
-            print(f"⚠️ [MAIN] Error durante el apagado: {e}")
+            print(f"[MAIN] Error durante el apagado: {e}")
             
-        print("🏁 [MAIN] Cart-ON OS apagado correctamente. ¡Hasta la próxima!")
+        print("[MAIN] Apagado todo correctamente.")
         sys.exit(0)
 
 if __name__ == "__main__":

@@ -38,10 +38,10 @@ class HRI(BaseModule):
         self.display = Display("Display", event_bus, shared_data)
         self.ojos = RobotEyes("Eyes")
 
-        # MOCHILA LOCAL PARA LA LISTA DE LA COMPRA (Evita la amnesia de la nube)
+        # Mochila local
         self.lista_compra_local = shared_data.get('shopping_list', {}).copy()
 
-        # 🚀 LA MÁQUINA DE ESTADOS FÍSICOS (FSM)
+        # Ña maquina de 
         self.estado_fisico = "HABLA"  # Puede ser: "HABLA", "MAPEO" o "CONDUCCION"
 
         vosk.SetLogLevel(-1)
@@ -92,7 +92,7 @@ class HRI(BaseModule):
             texto = datos_nube.get("texto", "Error en la respuesta")
             audio_b64 = datos_nube.get("audio_b64", None)
             
-            # 🚀 EXTRAEMOS LA ACCIÓN FÍSICA QUE MANDÓ QWEN
+            # Extraemos la acción física que nos indica el Planner
             accion_fisica = datos_nube.get("accion_fisica", "NINGUNA")
             
             if "lista_compra" in datos_nube:
@@ -128,9 +128,7 @@ class HRI(BaseModule):
                 except Exception as e:
                     print(f"{INDENT_OUTPUT}[{self.name}] Error al delegar audio al Speaker: {e}")
 
-            # ====================================================
-            # 🚀 EJECUCIÓN DEL ESTADO FÍSICO Y AVISO AL NAVEGADOR
-            # ====================================================
+            # Ejecución estado físico según la acción recibida del Planner
             if accion_fisica == "INICIAR_MAPEO":
                 self.estado_fisico = "MAPEO"
                 print(f"{INDENT_OUTPUT} 🧭 FSM: Cambiando estado a MAPEO. Despertando LIDAR...")
@@ -139,19 +137,19 @@ class HRI(BaseModule):
                 
             elif accion_fisica == "INICIAR_CONDUCCION":
                 self.estado_fisico = "CONDUCCION"
-                print(f"{INDENT_OUTPUT} 🚗 FSM: Cambiando estado a CONDUCCIÓN. Arrancando motores...")
+                print(f"{INDENT_OUTPUT} Cambiando estado a CONDUCCIÓN")
                 datos_navegacion = {
                     "aula": aula_recibida,
                     "lat": lat_recibida,
                     "lng": lng_recibida,
-                    "ruta_supermercado": ruta_supermercado # 👈 SE LO PASAMOS AL NAVEGADOR
+                    "ruta_supermercado": ruta_supermercado   
                 }
                 self.publish_event(Event(origin=self.name, type="START_DRIVING", data=datos_navegacion))
 
-            # Volvemos a abrir el semáforo para escuchar (pero la FSM bloqueará la charla)
+            # Volvemos a abrir el semáforo para escuchar
             self.puedo_escuchar.set()
 
-        # 🚀 TAREA PARA CUANDO LOS MOTORES TERMINEN SU TRABAJO
+        # Tarea que indica que la acción física ha terminado
         elif task.type == "PHYSICAL_ACTION_DONE":
             self.estado_fisico = "HABLA"
             print(f"\n{INDENT_OUTPUT} ✅ FSM: Acción física completada. Cart-ON vuelve al estado de HABLA.")
@@ -159,7 +157,6 @@ class HRI(BaseModule):
             self.puedo_escuchar.set()
 
     def _hacer_peticion(self, frase, foto_bytes):
-        # (El mismo código blindado de base64 que ya tenías)
         try:
             if not foto_bytes or foto_bytes == b'\x00':
                 foto_bytes = (b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00'
@@ -172,7 +169,6 @@ class HRI(BaseModule):
                               b'\x00\x08\x01\x01\x00\x00\x3f\x00\x37\xff\xd9')
 
             archivos = {'image_file': ('frame.jpg', foto_bytes, 'image/jpeg')}
-            # Añadimos la lista de la compra al paquete de datos para la nube
             lista_a_enviar = self.lista_compra_local if self.lista_compra_local else self.shared_data.get('shopping_list', {})
             
             datos = {
@@ -231,7 +227,7 @@ class HRI(BaseModule):
                         resultado = json.loads(recognizer_vosk.Result())
                         texto_detectado = resultado.get("text", "").lower()
                         
-                        # 🚀 COMANDO DE EMERGENCIA UNIVERSAL (Incluso si está conduciendo)
+                        # Parada emergencia por voz
                         if "para" in texto_detectado or "emergencia" in texto_detectado or "stop" in texto_detectado:
                             if self.estado_fisico in ["CONDUCCION", "MAPEO"]:
                                 print(f"\n{INDENT_OUTPUT} 🛑 ¡PARADA DE EMERGENCIA POR VOZ DETECTADA!")
@@ -263,9 +259,7 @@ class HRI(BaseModule):
                     self.publish_event(Event(origin=self.name, type="SHUTDOWN"))
                     break
                 elif texto.strip():
-                    # ====================================================
-                    # 🚀 INTERCEPTOR DE ESTADO FÍSICO (Bloquea la IA en movimiento)
-                    # ====================================================
+                    # Interceptor estado físico: Si está conduciendo o mapeando, no envía a la nube, solo para emergencias
                     if self.estado_fisico == "CONDUCCION":
                         if "para" in texto or "detente" in texto:
                             print(f"{INDENT_OUTPUT} 🛑 Orden de parada normal enviada al navegador.")
