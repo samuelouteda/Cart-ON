@@ -3,7 +3,6 @@ import requests
 import time
 import os
 import base64
-#import tempfile
 import speech_recognition as sr
 import json
 import unicodedata
@@ -14,16 +13,14 @@ import pyaudio
 #os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 #import pygame
 
-
 from core.base_module import BaseModule
 from core.event import Event
 from core.constants import INDENT_OUTPUT
 from core.task import Task
 from modules.actuation.speaker import Speaker
 from modules.actuation.display import Display
+from modules.actuation.eyes import RobotEyes
 from modules.processing.HRI.maps_helper import generate_location_image
-
-
 
 def normalize_for_display(text: str) -> str:
     # Normalitza accents (á → a, é → e, ñ → n...)
@@ -36,7 +33,6 @@ def normalize_for_display(text: str) -> str:
 
     return ascii_text
 
-
 class HRI(BaseModule):
     """
     Layer 2: Human-Robot Interaction Module
@@ -48,10 +44,14 @@ class HRI(BaseModule):
         self.api_key = api_key
         self.data_task_bus = data_task_bus
         self.shared_data = shared_data
-        self.cloud_url = "https://cart-on-api-225606614592.europe-southwest1.run.app/api/v1/interaccion"
+        self.cloud_url = "https://cart-on-api-225606614592.europe-west1.run.app/api/v1/interaccion"
 
         self.speaker = Speaker("Speaker", event_bus, shared_data)
         self.display = Display("Display", event_bus, shared_data)
+        self.ojos = RobotEyes()
+
+        # 🛒 MOCHILA LOCAL PARA LA LISTA DE LA COMPRA (Evita la amnesia de la nube)
+        self.lista_compra_local = {}
 
         # Ocultar logs de Vosk
         vosk.SetLogLevel(-1)
@@ -108,17 +108,30 @@ class HRI(BaseModule):
         elif task.type == "SPEAK":
             # Extraemos el paquete del cloud
             datos_nube = task.data
-            print(datos_nube)
+            emocion_recibida = datos_nube.get("emocion", "neutro")
             texto = datos_nube.get("texto", "Error en la respuesta")
             audio_b64 = datos_nube.get("audio_b64", None)
             
-            # --- MAGIA MULTIMEDIA ---
+            # 🛒 ACTUALIZAMOS LA MOCHILA LOCAL DE LA COMPRA
+            if "lista_compra" in datos_nube:
+                self.lista_compra_local = datos_nube["lista_compra"]
+
+            # 🛠️ CAPTURA DE DATOS GEOGRÁFICOS DE LA NUBE
             aula_recibida = datos_nube.get("aula", None)
             lat_recibida = datos_nube.get("lat", None)
             lng_recibida = datos_nube.get("lng", None)
-
+            
+            # Mandamos la emoción a tus ojos OLED
+            self.ojos.set_emocion(emocion_recibida)
+            
+            print(f"⚡ [Recepción Nube] Ha llegado el paquete.")
+            print(f"🎭 Cambiando cara del robot a modo: {emocion_recibida}")
+            print(f"🔊 Hablando: '{texto}'")
+                        
+            # --- 🗺️ MAGIA MULTIMEDIA DE GOOGLE MAPS ---
             imagen_mapa = None
             if aula_recibida and lat_recibida and lng_recibida:
+                print(f"🗺️ Base de Datos detectó localización para el aula {aula_recibida}. Invocando Google Maps...")
                 maps_key = os.getenv("MAPS_API_KEY")
                 imagen_mapa = generate_location_image(aula_recibida, lat_recibida, lng_recibida, maps_key)
             
@@ -131,11 +144,10 @@ class HRI(BaseModule):
             
             print(f"\n{INDENT_OUTPUT} [Cart-ON Dice]: {texto}\n")
             
-            #  DELEGACIÓN AL SPEAKER (Separación de responsabilidades)
+            # DELEGACIÓN AL SPEAKER (Separación de responsabilidades)
             if audio_b64:
                 try:
                     audio_bytes = base64.b64decode(audio_b64)
-                    # Aquí es donde ocurre la magia: le pasamos los bytes a tu módulo Speaker
                     # Como play_audio ya tiene su propio bucle de bloqueo, esto esperará automáticamente
                     self.speaker.play_audio(audio_bytes)
                 except Exception as e:
@@ -160,9 +172,14 @@ class HRI(BaseModule):
                 )
 
             archivos = {'image_file': ('frame.jpg', foto_bytes, 'image/jpeg')}
-            datos = {'frase_usuario': frase}
             
-            res = requests.post(self.cloud_url, files=archivos, data=datos, timeout=15)
+            # 🛒 Añadimos la lista de la compra al paquete de datos para la nube
+            datos = {
+                'frase_usuario': frase,
+                'lista_compra': json.dumps(self.lista_compra_local)
+            }
+            
+            res = requests.post(self.cloud_url, files=archivos, data=datos, timeout=30)
             res.raise_for_status()
             return res.json()
             
@@ -236,7 +253,7 @@ class HRI(BaseModule):
                 with sr.Microphone(device_index=index_micro_usb) as source:
                     recognizer_google.adjust_for_ambient_noise(source, duration=1)
                     print(f"{INDENT_OUTPUT} Te escucho... (Tienes 10s para hablar)")
-                    audio = recognizer_google.listen(source, timeout=10, phrase_time_limit=10)
+                    audio = recognizer_google.listen(source, timeout=30, phrase_time_limit=10)
 
                 self.puedo_escuchar.clear()
                 print(f"{INDENT_OUTPUT} Traduciendo tu voz a texto...")
@@ -271,6 +288,3 @@ class HRI(BaseModule):
         if ahora - self.ultimo_refresco >= 0.05:  # 0.05s = 20 FPS
             self.display.refresh()
             self.ultimo_refresco = ahora
-
-
-            

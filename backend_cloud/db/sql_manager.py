@@ -6,72 +6,89 @@ load_dotenv()
 
 class SQLManager:
     def __init__(self):
-        print("[SQLManager] 🗄️ Gestor de Base de Datos inicializado.")
+        print("[SQLManager] 🗄️ Gestor de Base de Datos inicializado y fusionado.")
 
     def get_connection(self):
-        """Crea y devuelve una nueva conexión a la base de datos."""
+        """Crea y devuelve una nueva conexión limpia a la base de datos."""
         try:
             conn = mysql.connector.connect(
-                host=os.getenv("DB_HOST", "localhost"),
+                host=os.getenv("DB_HOST", "34.28.135.54"),
                 user=os.getenv("DB_USER", "marco-mejias"),
-                password=os.getenv("DB_PASSWORD", "cart-on-Fortnite67"),
-                database=os.getenv("DB_NAME", "carton_db") # ⚠️ 
+                password=os.getenv("DB_PASS", "cart-on-Fortnite67"),
+                database=os.getenv("DB_NAME", "carton_db")
             )
             return conn
         except Exception as e:
             print(f"[SQLManager] 🔴 Error conectando a MySQL: {e}")
             return None
 
+    # ==========================================
+    # 🛒 MODO SUPERMERCADO (Ahora con BD Real)
+    # ==========================================
     def get_product_info(self, item_name: str):
-        """
-        Búsqueda difusa (Fuzzy Search). 
-        Encuentra 'Plátano de Canarias' aunque busques 'platano'.
-        """
-        if not item_name:
+        """Busca el producto en la BD real usando búsqueda aproximada."""
+        if not item_name or item_name == "producto desconocido":
             return None
             
-        termino = item_name.lower()
-        
-        # --- SIMULACIÓN BASADA EN TU CAPTURA DE PANTALLA ---
-        simulacion_bd = [
-            {"nombre_yolo": "apple", "nombre_pantalla": "Manzana Fuji Premium", "precio": 1.89, "stock_actual": 20},
-            {"nombre_yolo": "banana", "nombre_pantalla": "Plátano de Canarias", "precio": 2.15, "stock_actual": 15},
-            {"nombre_yolo": "bottle", "nombre_pantalla": "Botella de Agua Bezoya 1L", "precio": 0.85, "stock_actual": 30},
-            {"nombre_yolo": "tomato", "nombre_pantalla": "Tomate Pera", "precio": 1.20, "stock_actual": 50}
-        ]
-        
-        for producto in simulacion_bd:
-            nombre_limpio = producto["nombre_pantalla"].lower().replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
-            if termino in nombre_limpio or termino in producto["nombre_yolo"].lower():
-                return producto
-                
-        return None
-    
-    def get_classroom_location(self, nombre_aula):
+        termino = item_name.lower().strip()
+        conn = self.get_connection()
+        if not conn: return None
+
         try:
-            conn = self.get_connection()
-            if not conn: return None
+            cursor = conn.cursor(dictionary=True)
+            # Buscamos coincidencias tanto en el nombre interno como en el de pantalla
+            query = """
+                SELECT nombre_pantalla, precio, stock_actual 
+                FROM productos 
+                WHERE LOWER(nombre_yolo) LIKE %s OR LOWER(nombre_pantalla) LIKE %s
+            """
+            cursor.execute(query, (f"%{termino}%", f"%{termino}%"))
+            resultado = cursor.fetchone()
             
+            return resultado
+        except Exception as e:
+            print(f"🔴 Error buscando el producto en SQL: {e}")
+            return None
+        finally:
+            if conn.is_connected():
+                cursor.close()
+                conn.close()
+
+    # ==========================================
+    # 🛣️ MODO ESCUELA: UBICACIÓN DIRECTA
+    # ==========================================
+    def get_classroom_location(self, nombre_aula: str):
+        """Devuelve las coordenadas exactas de un aula."""
+        conn = self.get_connection()
+        if not conn: return None
+        
+        try:
             cursor = conn.cursor(dictionary=True) 
             query = "SELECT latitud, longitud FROM aulas_uab WHERE nombre_aula LIKE %s"
             cursor.execute(query, (f"%{nombre_aula}%",))
             resultado = cursor.fetchone()
             
-            cursor.close()
-            conn.close()
             return resultado
         except Exception as e:
             print(f"🔴 Error buscando el aula en SQL: {e}")
             return None
+        finally:
+            if conn.is_connected():
+                cursor.close()
+                conn.close()
     
+    # ==========================================
+    # 🗓️ MODO ESCUELA: HORARIO + COORDENADAS
+    # ==========================================
     def get_school_info(self, asignatura: str = None, grupo: str = None, hora: str = None):
+        """Busca la clase y hace JOIN para llevarse también la ubicación del aula."""
+        conn = self.get_connection()
+        if not conn: return []
+        
         try:
-            conn = self.get_connection()
-            if not conn: return []
-            
             cursor = conn.cursor(dictionary=True)
             
-            # Juntamos la tabla de horarios con la de aulas usando el nombre del aula
+            # 🚀 El JOIN mágico entre horarios y aulas
             query = """
                 SELECT h.*, a.latitud, a.longitud 
                 FROM horarios_uab h
@@ -80,6 +97,7 @@ class SQLManager:
             """
             params = []
             
+            # 🔥 Tu lógica de limpieza de palabras clave (¡muy buena!)
             if asignatura and asignatura != "producto desconocido":
                 palabras = asignatura.lower().split()
                 palabras_clave = [p for p in palabras if p not in ["de", "por", "para", "la", "el", "los", "las"]]
@@ -87,23 +105,25 @@ class SQLManager:
                 if palabras_clave:
                     raiz = palabras_clave[0]
                     raiz = raiz.replace('ó', 'o').replace('í', 'i')
-                    query += " AND LOWER(asignatura) LIKE %s"
+                    query += " AND LOWER(h.asignatura) LIKE %s"
                     params.append(f"%{raiz}%")
                 
             if grupo:
-                query += " AND grupo = %s"
+                query += " AND h.grupo = %s"
                 params.append(grupo)
                 
             if hora:
-                query += " AND hora_inicio LIKE %s"
+                query += " AND h.hora_inicio LIKE %s"
                 params.append(f"{hora}%")
                 
             cursor.execute(query, tuple(params))
             resultados = cursor.fetchall()
             
-            cursor.close()
-            conn.close()
             return resultados
         except Exception as e:
             print(f"[SQLManager] 🔴 Error consultando UAB: {e}")
             return []
+        finally:
+            if conn.is_connected():
+                cursor.close()
+                conn.close()

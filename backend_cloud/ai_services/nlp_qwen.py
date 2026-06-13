@@ -1,27 +1,29 @@
 # ai_services/nlp_qwen.py
 import json
 from openai import OpenAI
-import json
-from core.prompts import PROMPT_SUPERMERCADO, PROMPT_ESCUELA
+from core.prompts import PROMPT_SUPERMERCADO, PROMPT_ESCUELA, PROMPT_GENERACION_RESPUESTA
 from core.config import Config
 
 class NLPQwen:
     def __init__(self):
         self.uab_token = Config.UAB_TOKEN
         try:
-            self.client = OpenAI(api_key=self.uab_token, base_url="https://dcc-llm.uab.cat/bes2/v1")
+            self.client = OpenAI(api_key="accesoAlLLM", base_url="https://dcc-llm.uab.cat/bes2/v1")
             print("[NLPQwen] 🧠 Motor de Comprensión inicializado.")
         except Exception as e:
-            print(f"[NLPQwen] 🔴 Error: {e}")
+            print(f"[NLPQwen] 🔴 Error de inicialización: {e}")
             self.client = None
     
     def parse_intent(self, text: str, modo: str = "supermercado"):
-        # Elegimos la personalidad
+        # Elegimos la personalidad según el entorno del robot
         sistema_actual = PROMPT_SUPERMERCADO if modo == "supermercado" else PROMPT_ESCUELA
+        
+        if not self.client:
+            return "unknown", None, 1, None, None, "Mis sistemas lógicos están apagados."
         
         try:
             response = self.client.chat.completions.create(
-                model="Modelo-bXs2", # O el que estés usando en UAB
+                model="Modelo-bXs2",
                 messages=[
                     {"role": "system", "content": sistema_actual},
                     {"role": "user", "content": text}
@@ -30,7 +32,11 @@ class NLPQwen:
             )
             raw_text = response.choices[0].message.content.strip()
             
-            # Limpieza del bloque de código JSON (por si Qwen devuelve ```json ... ```)
+            print("\n" + "🔴"*15)
+            print(f"🕵️ CHIVATO 1 [parse_intent RAW]:\n{raw_text}")
+            print("🔴"*15 + "\n")
+            
+            # Limpieza del bloque de código JSON por seguridad
             if "```" in raw_text:
                 raw_text = raw_text.split("```")[1].strip()
                 if raw_text.startswith("json"):
@@ -38,74 +44,61 @@ class NLPQwen:
                     
             data = json.loads(raw_text)
             
-            # Extracción segura: usamos .get() por si un JSON no tiene una clave concreta
             intent = data.get("intent", "unknown")
             item = data.get("item", None)
             quantity = data.get("quantity", 1)
             group = data.get("group", None)
-            time_val = data.get("time", None) # Nuevo campo
+            time_val = data.get("time", None) 
             reply = data.get("reply", None)
+            emocion = data.get("emocion", "neutro")
             
-            # Ahora devolvemos 6 variables
-            return intent, item, quantity, group, time_val, reply
-
+            return intent, item, quantity, group, time_val, reply, emocion
 
         except Exception as e:
-            print(f"Error en NLP: {e}")
-            return "unknown", None, 1, None, "Fallo al procesar."
+            print(f"[NLPQwen] 🔴 Error en parsing de intención: {e}")
+            # 🛠️ FIX: Devolvemos 6 elementos exactos para evitar crash de desempaquetado en el Planner
+            return "unknown", None, 1, None, None, "Fallo al procesar mi matriz lógica.", "triste"
 
+    def generate_response(self, user_text: str, context: str) -> dict:
+        """
+        Genera un diccionario con la respuesta natural y la emoción correspondiente para los ojos.
+        Devuelve: {"texto": str, "emocion": str}
+        """
         if not self.client:
-            return "unknown", None, 1, "Mis sistemas lógicos están apagados."
+            return {"texto": "Lo siento, mi procesador cognitivo está desconectado.", "emocion": "triste"}
 
-        try:
-            response = self.client.chat.completions.create(
-                model="Modelo-bXs2",
-                messages=[
-                    {"role": "system", "content": "Eres un parseador estricto que solo devuelve JSON puro."},
-                    {"role": "user", "content": PROMPT_NLP + f'\nPetición: "{raw_text}"'}
-                ],
-                temperature=0.01 
-            )
-            
-            texto_crudo = response.choices[0].message.content.strip()
-            texto_limpio = texto_crudo.replace("```json", "").replace("```", "").strip()
-            datos = json.loads(texto_limpio)
-            
-            intent = datos.get("intent", "unknown")
-            item = datos.get("item", None)
-            reply = datos.get("reply", None)
-            quantity = int(datos.get("quantity", 1)) if str(datos.get("quantity")).isdigit() else 1
-                
-            return intent, item, quantity, reply
-
-        except Exception as e:
-            print(f"[NLPQwen] 🔴 ERROR de parseo: {e}")
-            return "unknown", None, 1, "Ha habido un error en mi cerebro central."
-        
-    def generate_response(self, user_text: str, context: str):
-        """
-        Genera una respuesta natural basada en lo que ha hecho el sistema por debajo.
-        """
-        prompt = f"""
-        Eres Cart-ON, un robot asistente de supermercado muy amable y servicial.
-        El usuario te ha dicho: "{user_text}"
-        
-        Tu sistema informático interno te informa de lo siguiente:
-        "{context}"
-        
-        Basándote en esa información, respóndele al usuario de forma natural, conversacional y en español.
-        No digas cosas como "mi sistema interno dice" ni hables como un robot leyendo una base de datos.
-        Simplemente dale la información con naturalidad. Sé breve (1 o 2 frases máximo).
-        """
+        paquete_usuario = f'Petición del usuario: "{user_text}"\nContexto interno del sistema: "{context}"'
         
         try:
             response = self.client.chat.completions.create(
                 model="Modelo-bXs2",
                 messages=[
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": PROMPT_GENERACION_RESPUESTA},
+                    {"role": "user", "content": paquete_usuario}
                 ],
-                temperature=0.6 # Un poco más alto para que sea más creativo y natural
+                temperature=0.4
             )
-            return response.choices[0].message.content.strip()
+            
+            raw_text = response.choices[0].message.content.strip()
+            
+            print("\n" + "🔵"*15)
+            print(f"🕵️ CHIVATO 2 [generate_response RAW]:\n{raw_text}")
+            print("🔵"*15 + "\n")
+            
+            if "```" in raw_text:
+                raw_text = raw_text.split("```")[1].strip()
+                if raw_text.startswith("json"):
+                    raw_text = raw_text[4:].strip()
+            
+            data = json.loads(raw_text)
+            return {
+                "texto": data.get("texto", "Procesamiento completado."),
+                "emocion": data.get("emocion", "neutral")
+            }
+            
         except Exception as e:
-            return "Perdona, he procesado lo que me has pedido pero tengo un fallo en mi módulo de voz."
+            print(f"[NLPQwen] 🔴 Error en generación emocional: {e}")
+            return {
+                "texto": "He ejecutado la tarea correctamente, pero tengo interferencias en mi expresión facial.",
+                "emocion": "duda"
+            }
