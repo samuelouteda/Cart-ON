@@ -12,7 +12,7 @@ def generate_location_image(aula_nombre, lat, lng, api_key=None):
     if not api_key:
         api_key = os.getenv("MAPS_API_KEY", "TU_API_KEY_POR_DEFECTO")
 
-    print(f"[MapsHelper] 🗺️ Generando mapa para {aula_nombre} ({lat}, {lng})...")
+    print(f"[MapsHelper] Generando mapa para {aula_nombre} ({lat}, {lng})...")
 
     # 1. DESCARGAR MAPA ESTÁTICO DE GOOGLE
     # Modifica size=600x400 o zoom=18 si lo ves pequeño en tu pantalla grande
@@ -30,9 +30,9 @@ def generate_location_image(aula_nombre, lat, lng, api_key=None):
             arr = np.asarray(bytearray(res.content), dtype=np.uint8)
             mapa_img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         else:
-            print(f"[MapsHelper] 🔴 Error API Google Estática (Status: {res.status_code})")
+            print(f"[MapsHelper] Error API Google Estática (Status: {res.status_code})")
     except Exception as e:
-        print(f"[MapsHelper] 🔴 Error de red al descargar mapa: {e}")
+        print(f"[MapsHelper] Error de red al descargar mapa: {e}")
 
     # Si Google Maps falla, creamos un fondo negro de seguridad para que no crashee la pantalla
     if mapa_img is None:

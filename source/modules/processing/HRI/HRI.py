@@ -36,7 +36,7 @@ class HRI(BaseModule):
 
         self.speaker = Speaker("Speaker", event_bus, shared_data)
         self.display = Display("Display", event_bus, shared_data)
-        self.ojos = RobotEyes()
+        self.ojos = RobotEyes("Eyes")
 
         # MOCHILA LOCAL PARA LA LISTA DE LA COMPRA (Evita la amnesia de la nube)
         self.lista_compra_local = shared_data.get('shopping_list', {}).copy()

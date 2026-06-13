@@ -2,4 +2,8 @@
 .env
 __pycache__/
 *.pyc
-__pycache__/ *.py[cod]
+*.py[cod]
+*$py.class
+shopping_list.json
+
+

@@ -5,7 +5,8 @@ from luma.core.render import canvas
 from luma.oled.device import sh1106
 
 class RobotEyes:
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.device = self._inicialitzar_ulls()
         self.emocion_actual = "neutral"
         self.running = True
@@ -19,17 +20,17 @@ class RobotEyes:
         try:
             serial = spi(port=0, device=0, gpio_DC=20, gpio_RST=16, bcm_CS=21)
             dispositiu = sh1106(serial, width=128, height=64)
-            print("[Eyes] 👀 Pantalles OLED SH1106 inicialitzades per SPI!")
+            print(f"[{self.name}] Pantalles OLED SH1106 inicialitzades per SPI!")
             return dispositiu
         except Exception as e:
-            print(f"[Eyes] ❌ Error de configuració de pins SPI: {e}")
+            print(f"[{self.name}] Error de configuració de pins SPI: {e}")
             return None
 
     def set_emocion(self, nueva_emocion):
         """Actualiza la emoción que deben mostrar los ojos."""
         with self.lock:
             self.emocion_actual = nueva_emocion.lower()
-            print(f"[Eyes] 🎭 Cambiando expresión a: {self.emocion_actual}")
+            print(f"[{self.name}] Cambiando expresión a: {self.emocion_actual}")
 
     def _bucle_refresco(self):
         """Hilo en segundo plano que dibuja el ojo según la emoción actual."""
