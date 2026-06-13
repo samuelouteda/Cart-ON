@@ -35,9 +35,14 @@ class Navigation(BaseModule):
         self.home_x = 0.0
         self.home_y = 0.0
         self.returning_home = False
+        
+        self.destinations_queue = [] #cola paradas super
+
+        # 📸 VARIABLES DE ESCANEO DE ESTANTERÍAS (OPCIÓN B)
+        self.is_scanning_shelf = False
+        self.last_scan_time = 0.0
 
         # 🗺️ CONFIGURACIÓN DEL ORIGEN GPS (Ej: Puerta principal del edificio)
-        # ⚠️ Cambia estos valores por las coordenadas exactas de donde arranca tu SLAM
         self.gps_transformer = CoordinateTransformer(origin_lat=41.502, origin_lon=2.104, yaw_offset_rad=0.0)
 
     def _init_motion(self):
@@ -56,31 +61,49 @@ class Navigation(BaseModule):
             aula = datos_destino.get("aula")
             lat_gps = datos_destino.get("lat")
             lng_gps = datos_destino.get("lng")
-            
+            ruta_supermercado = datos_destino.get("ruta_supermercado", [])
+
+            self._update_pose_from_odom()
+            if self.motion_controller:
+                self.home_x = self.motion_controller.current_x
+                self.home_y = self.motion_controller.current_y
+
+            self.destinations_queue = [] # Limpiamos viajes anteriores
+            self.returning_home = False
+
+            if "item_locations" not in self.shared_data:
+                self.shared_data["item_locations"] = {}
+
+            # OPCIÓN A: MODO UNIVERSITARIO (Un solo destino)
             if aula and lat_gps and lng_gps:
-                # 🌍 1. TRADUCIR COORDENADAS (GPS -> Metros del LiDAR)
                 local_x, local_y = self.gps_transformer.gps_to_local(lat_gps, lng_gps)
+                self.destinations_queue.append((aula, local_x, local_y))
                 
-                # 🏠 2. GUARDAR "HOME BASE"
-                self._update_pose_from_odom()
-                if self.motion_controller:
-                    self.home_x = self.motion_controller.current_x
-                    self.home_y = self.motion_controller.current_y
+            # OPCIÓN B: MODO SUPERMERCADO (Múltiples destinos)
+            elif ruta_supermercado:
+                print(f"{INDENT_OUTPUT}[{self.name}] 🛒 Calculando ruta óptima para {len(ruta_supermercado)} productos...")
+                curr_x, curr_y = self.home_x, self.home_y
+                pendientes = ruta_supermercado.copy()
+                
+                # Algoritmo de Vecino Más Cercano (Nearest Neighbor)
+                while pendientes:
+                    mas_cercano = min(pendientes, key=lambda p: math.hypot(p['x'] - curr_x, p['y'] - curr_y))
+                    self.destinations_queue.append((mas_cercano['producto'], mas_cercano['x'], mas_cercano['y']))
+                    curr_x, curr_y = mas_cercano['x'], mas_cercano['y']
+                    pendientes.remove(mas_cercano)
 
-                # 🎯 3. INYECTAR DESTINO EN EL SISTEMA
-                self.target_item = aula
-                if "item_locations" not in self.shared_data:
-                    self.shared_data["item_locations"] = {}
-                self.shared_data["item_locations"][aula] = (local_x, local_y)
-
-                # 🏎️ 4. ARRANCAR NAVEGACIÓN
+            # 🚀 ARRANCAMOS LA PRIMERA PARADA
+            if self.destinations_queue:
+                siguiente_parada, sx, sy = self.destinations_queue.pop(0)
+                self.target_item = siguiente_parada
+                self.shared_data["item_locations"][siguiente_parada] = (sx, sy)
+                
                 with self._nav_lock:
                     self.nav_state = "calculating"
                 self.nav_start_time = time.time()
-                self.returning_home = False
-                print(f"{INDENT_OUTPUT}[{self.name}] 🚗 IA ordena ir a \"{self.target_item}\" (Local: X={local_x:.2f}, Y={local_y:.2f})...")
+                print(f"{INDENT_OUTPUT}[{self.name}] 🚗 Próxima parada: \"{self.target_item}\" (X={sx:.2f}, Y={sy:.2f})")
             else:
-                print(f"{INDENT_OUTPUT}[{self.name}] ⚠️ START_DRIVING sense coordenades clares.")
+                print(f"{INDENT_OUTPUT}[{self.name}] ⚠️ START_DRIVING sin destinos válidos encontrados en la BD.")
 
         elif task.type == "START_MAPPING":
             print(f"{INDENT_OUTPUT}[{self.name}] 🧭 IA autoritza mapeig. Iniciant explorador de fronteres...")
@@ -96,9 +119,18 @@ class Navigation(BaseModule):
                 self.nav_state = "idle"
             self.exploring = False
             self.returning_home = False
+            self.is_scanning_shelf = False
 
         # ========================================================
-        # ⚙️ 2. ÓRDENES INTERNAS ANTIGUAS
+        # 📸 2. SINCRONIZACIÓN CON EL MÓDULO DE VISIÓN (NUEVO)
+        # ========================================================
+        elif task.type == "PHOTO_DONE":
+            if self.is_scanning_shelf:
+                print(f"{INDENT_OUTPUT}[{self.name}] ✅ Módulo de visión ha terminado. Retomando ruta...")
+                threading.Thread(target=self._resume_after_scan, daemon=True).start()
+
+        # ========================================================
+        # ⚙️ 3. ÓRDENES INTERNAS ANTIGUAS
         # ========================================================
         elif task.type == "navigate_to_item":
             self.target_item = task.data['item']
@@ -109,13 +141,11 @@ class Navigation(BaseModule):
             print(f"{INDENT_OUTPUT}[{self.name}] Calculant ruta a \"{self.target_item}\"...")
 
         elif task.type == "start_exploration":
-            print(f"{INDENT_OUTPUT}[{self.name}] Iniciant exploració autònoma (Interna)...")
             self.exploring = True
             self.frontier_explorer.reset()
             self._exploration_step()
 
         elif task.type == "stop_exploration":
-            print(f"{INDENT_OUTPUT}[{self.name}] Aturant exploració (Interna).")
             self.exploring = False
             if self.motion_controller:
                 self.motion_controller.stop()
@@ -137,40 +167,49 @@ class Navigation(BaseModule):
 
         pending = self.shared_data.get("pending_task", None)
         if pending == "start_exploration":
-            print(f"[{self.name}] Tasca pendent rebuda: start_exploration")
             self.shared_data["pending_task"] = None
             self.exploring = True
             self.frontier_explorer.reset()
             self._exploration_step()
 
         # -------------------------------------------------------------
-        # PART 1: DETECCIÓ D'OBSTACLES (LASER)
+        # PART 1: DETECCIÓ D'OBSTACLES I ESTANTERÍES (LASER)
         # -------------------------------------------------------------
         punts_laser = self.shared_data.get("scan", None)
         if punts_laser:
-            if isinstance(punts_laser, list):
-                for qualitat, angle, distancia in punts_laser:
-                    if angle > 340 or angle < 20:
-                        if 0 < distancia < 400:
-                            print(f"[{self.name}] ¡CRÍTICH! Obstacle a {distancia} mm")
-                            self.publish_event(Event(type="critical_obstacle", origin=self.name))
-                            if self.motion_controller:
-                                with self._nav_lock:
-                                    if self.nav_state == "navigating":
-                                        self.motion_controller.stop()
-                                        self.nav_state = "idle"
-                            break
-            else:
-                ranges = punts_laser.ranges
-                num_punts = len(ranges)
-                if num_punts > 0:
-                    for i in range(num_punts):
-                        angle = (i * 360.0) / num_punts
+            # A) DETECCIÓN DE ESTANTERÍA (Solo si exploramos, no estamos escaneando y ha pasado el cooldown de 20s)
+            if self.exploring and not self.is_scanning_shelf and (time.time() - self.last_scan_time > 20.0):
+                puntos_derecha = []
+                # El flanco derecho está aprox entre 260º y 280º
+                if isinstance(punts_laser, list):
+                    for qualitat, angle, distancia in punts_laser:
+                        if 260 <= angle <= 280 and 300 < distancia < 1500: # Entre 30cm y 1.5m
+                            puntos_derecha.append(distancia)
+                else:
+                    ranges = punts_laser.ranges
+                    num_punts = len(ranges)
+                    if num_punts > 0:
+                        for i in range(num_punts):
+                            angle = (i * 360.0) / num_punts
+                            if 260 <= angle <= 280:
+                                dist = ranges[i] * 1000
+                                if 300 < dist < 1500:
+                                    puntos_derecha.append(dist)
+                
+                # Geometría Plana: Si hay más de 10 puntos en ese sector y la diferencia entre ellos es menor a 150mm
+                if len(puntos_derecha) > 10:
+                    varianza = max(puntos_derecha) - min(puntos_derecha)
+                    if varianza < 150: 
+                        print(f"{INDENT_OUTPUT}[{self.name}] 🛒 ¡Geometría de ESTANTERÍA detectada a la derecha!")
+                        threading.Thread(target=self._execute_shelf_scan_maneuver, daemon=True).start()
+
+            # B) ANTI-CHOQUES DE SEGURIDAD FRONTALES
+            if not self.is_scanning_shelf:
+                if isinstance(punts_laser, list):
+                    for qualitat, angle, distancia in punts_laser:
                         if angle > 340 or angle < 20:
-                            distancia_metres = ranges[i]
-                            if 0.05 < distancia_metres < 0.20:
-                                distancia_mm = distancia_metres * 1000
-                                print(f"[{self.name}] ¡CRÍTICH! Obstacle (ROS) a {distancia_mm:.0f} mm")
+                            if 0 < distancia < 400:
+                                print(f"[{self.name}] ¡CRÍTICH! Obstacle a {distancia} mm")
                                 self.publish_event(Event(type="critical_obstacle", origin=self.name))
                                 if self.motion_controller:
                                     with self._nav_lock:
@@ -178,6 +217,24 @@ class Navigation(BaseModule):
                                             self.motion_controller.stop()
                                             self.nav_state = "idle"
                                 break
+                else:
+                    ranges = punts_laser.ranges
+                    num_punts = len(ranges)
+                    if num_punts > 0:
+                        for i in range(num_punts):
+                            angle = (i * 360.0) / num_punts
+                            if angle > 340 or angle < 20:
+                                distancia_metres = ranges[i]
+                                if 0.05 < distancia_metres < 0.20:
+                                    distancia_mm = distancia_metres * 1000
+                                    print(f"[{self.name}] ¡CRÍTICH! Obstacle a {distancia_mm:.0f} mm")
+                                    self.publish_event(Event(type="critical_obstacle", origin=self.name))
+                                    if self.motion_controller:
+                                        with self._nav_lock:
+                                            if self.nav_state == "navigating":
+                                                self.motion_controller.stop()
+                                                self.nav_state = "idle"
+                                    break
 
         # -------------------------------------------------------------
         # PART 2: MÀQUINA D'ESTATS (RUTAS)
@@ -185,7 +242,7 @@ class Navigation(BaseModule):
         with self._nav_lock:
             current_state = self.nav_state
 
-        if current_state == "calculating":
+        if current_state == "calculating" and not self.is_scanning_shelf:
             mapa = self.shared_data.get("map", None)
             if mapa:
                 self.path_planner.update_map(mapa)
@@ -222,17 +279,55 @@ class Navigation(BaseModule):
         elif current_state == "navigating":
             self._update_pose_from_odom()
 
+    # ========================================================
+    # 🩰 LA COREOGRAFÍA DE ESCANEO ("EL BAILE")
+    # ========================================================
+    def _execute_shelf_scan_maneuver(self):
+        self.is_scanning_shelf = True
+        
+        # 1. Clavar Frenos (interrumpe la exploración)
+        if self.motion_controller:
+            self.motion_controller.stop() 
+        
+        time.sleep(1) # Dejar que la inercia pare
+        
+        # 2. Girar 90º a la Derecha para encarar la estantería
+        print(f"{INDENT_OUTPUT}[{self.name}] ↪️ Girando hacia la estantería...")
+        if self.motion_controller and self.motion_controller.fw:
+            # ⚠️ TUNEA ESTE SLEEP: Es el tiempo que tu Arduino tarda en girar 90º exactos a velocidad 120
+            self.motion_controller.fw.giro_der(120)
+            time.sleep(1.8) 
+            self.motion_controller.fw.stop()
+        
+        time.sleep(0.5)
+        
+        # 3. Disparar evento para que vision.py haga la foto
+        print(f"{INDENT_OUTPUT}[{self.name}] 📸 Disparando evento de foto...")
+        self.publish_event(Event(origin=self.name, type="TAKE_INVENTORY_PHOTO"))
+        # Nos quedamos en modo is_scanning_shelf = True hasta que vision.py grite "PHOTO_DONE"
+
+    def _resume_after_scan(self):
+        # 4. Deshacer el giro (-90º) para volver a mirar al frente
+        print(f"{INDENT_OUTPUT}[{self.name}] ↩️ Recuperando orientación original...")
+        if self.motion_controller and self.motion_controller.fw:
+            # ⚠️ TUNEA ESTE SLEEP: Mismo tiempo que el giro anterior
+            self.motion_controller.fw.giro_izq(120)
+            time.sleep(1.8) 
+            self.motion_controller.fw.stop()
+
+        self.last_scan_time = time.time() # Reseteamos el cooldown de 20s
+        self.is_scanning_shelf = False
+        
+        # 5. La función _exploration_step, que estaba pausada, continuará sola.
+
     def _execute_path(self, waypoints):
-        # El MotionController arranca los motores hasta terminar los waypoints
         success = self.motion_controller.follow_path(waypoints)
         
-        if success:
+        if success and not self.is_scanning_shelf:
             if not self.returning_home:
-                # LLEGAMOS AL AULA
                 print(f"{INDENT_OUTPUT}[{self.name}] Destinació assolida! Esperant 5 segons abans de tornar a casa...")
-                time.sleep(5) # Tiempo para que la persona vea la pantalla / escanee QR
+                time.sleep(5) 
                 
-                # PREPARAMOS EL RETORNO
                 self.returning_home = True
                 self.target_item = "HOME_BASE"
                 if "item_locations" not in self.shared_data:
@@ -242,26 +337,29 @@ class Navigation(BaseModule):
                 with self._nav_lock:
                     self.nav_state = "calculating"
             else:
-                # LLEGAMOS A CASA
                 print(f"{INDENT_OUTPUT}[{self.name}] 🏠 He tornat a la Base! Missió completada.")
-                self.publish_event(Event(type="PHYSICAL_ACTION_DONE", origin=self.name)) # HRI VUELVE A HABLAR
+                self.publish_event(Event(type="PHYSICAL_ACTION_DONE", origin=self.name))
                 with self._nav_lock:
                     self.nav_state = "idle"
                 self.target_item = None
                 self.returning_home = False
         else:
-            # FALLO EN RUTA (Obstáculo, emergency stop, etc.)
-            print(f"{INDENT_OUTPUT}[{self.name}] Navegació fallida o interrompuda.")
-            self.publish_event(Event(type="PHYSICAL_ACTION_DONE", origin=self.name)) # HRI VUELVE A HABLAR (Para avisar)
-            with self._nav_lock:
-                self.nav_state = "idle"
-            self.target_item = None
-            self.returning_home = False
+            if not self.is_scanning_shelf:
+                print(f"{INDENT_OUTPUT}[{self.name}] Navegació fallida o interrompuda.")
+                self.publish_event(Event(type="PHYSICAL_ACTION_DONE", origin=self.name))
+                with self._nav_lock:
+                    self.nav_state = "idle"
+                self.target_item = None
+                self.returning_home = False
 
     def _exploration_step(self):
-        # (Se queda exactamente igual que tu código original)
         def _step():
             while self.exploring:
+                # 🛑 Si estamos en medio del baile de la foto, pausar el explorador
+                if self.is_scanning_shelf:
+                    time.sleep(0.5)
+                    continue
+
                 mapa = self.shared_data.get("map", None)
                 if mapa:
                     self.path_planner.update_map(mapa)
@@ -296,7 +394,7 @@ class Navigation(BaseModule):
                 with self._nav_lock:
                     self.nav_state = "idle"
 
-                if not success:
+                if not success and not self.is_scanning_shelf:
                     print(f"{INDENT_OUTPUT}[{self.name}] Frontier no assolit, provant el següent...")
 
                 time.sleep(0.5)

@@ -101,6 +101,7 @@ class HRI(BaseModule):
             aula_recibida = datos_nube.get("aula", None)
             lat_recibida = datos_nube.get("lat", None)
             lng_recibida = datos_nube.get("lng", None)
+            ruta_supermercado = datos_nube.get("ruta_supermercado", [])
             
             self.ojos.set_emocion(emocion_recibida)
             
@@ -139,12 +140,11 @@ class HRI(BaseModule):
             elif accion_fisica == "INICIAR_CONDUCCION":
                 self.estado_fisico = "CONDUCCION"
                 print(f"{INDENT_OUTPUT} 🚗 FSM: Cambiando estado a CONDUCCIÓN. Arrancando motores...")
-                # Empaquetamos adónde tiene que ir para mandárselo a los motores
                 datos_navegacion = {
                     "aula": aula_recibida,
                     "lat": lat_recibida,
                     "lng": lng_recibida,
-                    "lista_compra": self.lista_compra_local
+                    "ruta_supermercado": ruta_supermercado # 👈 SE LO PASAMOS AL NAVEGADOR
                 }
                 self.publish_event(Event(origin=self.name, type="START_DRIVING", data=datos_navegacion))
 
