@@ -14,47 +14,42 @@ if linux_mode:
     import rclpy
     rclpy.init()
     from modules.processing.navigation.ros_module import ROSModule
+    from modules.processing.navigation.wheel_odom import WheelOdom
+    from modules.actuation.wheel_firm import WheelFirm
 
-# Importamos el Orquestador y las estructuras core
-from core.event import Event
-from core.task import Task
 from modules.decision_making.planner import Planner
-
-# Importamos los Módulos del Robot
 from modules.processing.navigation.navigation import Navigation
-from modules.sensor.sensor import SensoryModule
 from modules.processing.HRI.HRI import HRI
 from modules.processing.data.data_manager import DataModule
-
-# Importamos la Capa de Actuación (Solo se usarán si estamos en Linux)
-if linux_mode:
-    from modules.actuation.wheel_firm import WheelFirm
-    from modules.processing.navigation.wheel_odom import WheelOdom
+from modules.sensor.sensor import SensoryModule
+from core.event import Event
 
 def main():
-    print("[MAIN] Iniciando Cart-ON...")
+    print("[MAIN] Starting Cart-ON...")
     if linux_mode:
-        print("[MAIN] Modo Linux. Hardware y ROS activados.")
+        print("[MAIN] Linux Mode. Hardware and ROS activated.")
     else:
-        print("[MAIN] Modo Simulación. Hardware físico deshabilitado.")
+        print("[MAIN] Simulation Mode. Physical hardware disabled.")
 
-    # Inicialización de colas y estructuras compartidas
+    # ==================================================================================================
+    # Inicializacion de variables ======================================================================
+    # ==================================================================================================
     event_bus = Queue()
     data_task_bus = Queue()
-    shared_sensor_stream = {}
+    sensor_data = {}
     shared_data = {}
 
     load_dotenv()
     api_key = os.getenv("API_KEY")
 
     if not api_key:
-        print("[MAIN] Error: Falta la API_KEY en el archivo .env")
+        print("[MAIN] Critical error: Missing API_KEY (Voice STT/TTS) in the .env file")
         exit()
 
     # Inicialización del hardware físico (solo en Linux)
     wheel_firm = None
     if linux_mode:
-        print("[MAIN] Conectando con Arduino por Serial...")
+        print("[MAIN] Connecting to Arduino via Serial...")
         try:
             wheel_firm = WheelFirm(port="/dev/ttyACM0", baud=115200)
             shared_data["wheel_firm"] = wheel_firm 
@@ -62,26 +57,31 @@ def main():
             wheel_odom = WheelOdom()
             wheel_firm.set_odom_node(wheel_odom)
             shared_data["odom"] = wheel_odom
-            print("[MAIN] Odometría vinculada a los encoders.")
+            print("[MAIN] Odometry linked to encoders.")
             
             time.sleep(2) # Tiempo para que el Arduino respire tras abrir el puerto
             
             if not wheel_firm.is_connected():
-                print("[MAIN] ADVERTENCIA: Arduino no conectado. Los motores no funcionarán.")
+                print("[MAIN] WARNING: Arduino not connected. Motors will not work.")
         except Exception as e:
-            print(f"[MAIN] Problema inicializando hardware físico: {e}")
+            print(f"[MAIN] Problem initializing physical hardware: {e}")
 
-    # Instanciación de módulos de procesamiento
-    print("[MAIN] Instanciando módulos de procesamiento...")
+    # ==================================================================================================
+    # Instanciacion de modulos =========================================================================
+    # ==================================================================================================
+
+    print("[MAIN] Instantiating processing modules...")
     
     planner = Planner(event_bus)
-    navigation = Navigation("Navigation", event_bus, shared_sensor_stream, data_task_bus, shared_data)
-    sensory = SensoryModule("Sensory", event_bus, shared_sensor_stream, data_task_bus, shared_data)
-    # HRI recibe la api_key como pedía el código original
-    human_interaction = HRI("HRI", event_bus, shared_sensor_stream, api_key, data_task_bus, shared_data)
+    navigation = Navigation("Navigation", event_bus, sensor_data, data_task_bus, shared_data)
+    sensory = SensoryModule("Sensory", event_bus, sensor_data, data_task_bus, shared_data)
+    human_interaction = HRI("HRI", event_bus, sensor_data, api_key, data_task_bus, shared_data)
     data_manager = DataModule("Data", event_bus, data_task_bus, shared_data)
 
-    # Agregamos los módulos al Planner para que pueda orquestarlos
+    # ==================================================================================================
+    # Acoplamiento de modulos ==========================================================================
+    # ==================================================================================================
+
     planner.append_modules([navigation, sensory, human_interaction, data_manager])
 
     if linux_mode:
@@ -89,10 +89,13 @@ def main():
             ros_module = ROSModule("ROS", event_bus, shared_data)
             planner.append_single_module(ros_module)
         except Exception as e:
-            print(f"[MAIN] Error iniciando el módulo ROS: {e}")
+            print(f"[MAIN] Error starting ROS module: {e}")
 
-    # Iniciamos los hilos de los módulos
-    print("[MAIN] Arrancando hilos paralelos...")
+    # ==================================================================================================
+    # Inicio de hilos ==================================================================================
+    # ==================================================================================================
+
+    print("[MAIN] Starting parallel threads...")
     planner.start()
     navigation.start()
     sensory.start()
@@ -102,20 +105,23 @@ def main():
     if linux_mode and 'ros_module' in locals():
         ros_module.start()
 
-    print("[MAIN] Sistema todo listo. Cart-ON en marcha.")
+    print("[MAIN] System ready. Cart-ON running.")
 
-    # Bucle principal que mantiene vivo el proceso y supervisa el Planner
+    # ==================================================================================================
+    # Bucle de vigilancia del hilo principal ===========================================================
+    # ==================================================================================================
+
     try:
         while planner.running: 
             time.sleep(1)
             
-        print("\n[MAIN] El Orquestador ha ordenado el apagado")
+        print("\n[MAIN] The Orchestrator has ordered shutdown.")
             
     except KeyboardInterrupt:
-        print("\n[MAIN] Apagado manual detectado")
+        print("\n[MAIN] Manual shutdown detected.")
         
     finally:
-        print("🧹 [MAIN] Cerrando módulos de forma segura...")
+        print("[MAIN] Closing modules safely...")
         event_bus.put(Event(type="shutdown", origin="Main"))
         
         try:
@@ -126,9 +132,9 @@ def main():
             human_interaction.join(timeout=2)
             data_manager.join(timeout=2)
 
-            # Apagado del Hardware Físico
+            # Apagado del Hardware Fisico
             if linux_mode:
-                print("[MAIN] Apagando ROS...")
+                print("[MAIN] Shutting down ROS...")
                 if wheel_firm:
                     wheel_firm.close()
                 if 'ros_module' in locals():
@@ -136,9 +142,11 @@ def main():
                 rclpy.shutdown()
                 
         except Exception as e:
-            print(f"[MAIN] Error durante el apagado: {e}")
+            print(f"[MAIN] Error during shutdown: {e}")
+        except KeyboardInterrupt:
+            pass
             
-        print("[MAIN] Apagado todo correctamente.")
+        print("[MAIN] System shut down successfully.")
         sys.exit(0)
 
 if __name__ == "__main__":

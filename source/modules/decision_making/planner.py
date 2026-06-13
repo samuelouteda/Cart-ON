@@ -131,7 +131,7 @@ class Planner(BaseModule):
 
                 # Boton apagado
                 if accion == "SHUTDOWN" or comando == "SHUTDOWN":
-                    print(f"[{self.name}] 💀 Qwen ha ordenado el APAGADO del sistema. Ejecutando...")
+                    print(f"[{self.name}] Qwen has ordered a system SHUTDOWN. Executing...")
                     # Inyectamos el evento de apagado en el bus para morir con honor
                     self.event_queue.put(Event(type="shutdown", origin="Cloud"))
                     return
