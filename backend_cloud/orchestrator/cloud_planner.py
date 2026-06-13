@@ -222,7 +222,7 @@ class PlannerCloud:
         
         # 1. Inferencia del Modelo Visual de la UAB
         try:
-            client = OpenAI(api_key=Config.UAB_TOKEN, base_url="https://dcc-llm.uab.cat/bes2/v1")
+            client = OpenAI(api_key="accesoAlLLM", base_url="https://dcc-llm.uab.cat/bes2/v1")
             response = client.chat.completions.create(
                 model="Modelo-bXs2",
                 messages=[{"role": "user", "content": [
