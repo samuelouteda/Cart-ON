@@ -11,6 +11,9 @@ class Planner(BaseModule):
 
         self.fase_actual = "fase_2_interaccion"
         self.frase_pendiente = None
+
+        self.current_item = None
+        self.replan_time = None
     
     def append_single_module(self, module):
         if module.name not in self.modules:
@@ -38,7 +41,7 @@ class Planner(BaseModule):
         print(f"[{self.name}] Event received: {type} from {origin}")
 
         if str(type).lower() == "shutdown":
-            print(f"[{self.name}] Apagando orquestador y notificando a módulos...")
+            print(f"[{self.name}] Shutting down orchestrator and notifying modules....")
             shutdown_task = Task(type="shutdown")
             for m in self.modules.values():
                 m.add_task(shutdown_task)
@@ -46,23 +49,23 @@ class Planner(BaseModule):
             return
 
         # =======================================================
-        # 🛒 EL BAILE DEL ROBOT: ESCANEO DE ESTANTERÍAS (NUEVO)
+        # ESCANEO DE ESTANTERÍAS
         # =======================================================
         elif type == "SHELF_DETECTED":
-            print(f"[{self.name}] 🛒 Navegador reporta estantería. Ordenando a Sensory tomar foto...")
+            print(f"[{self.name}] Navigator reported shelf. Ordering Sensory to take photo...")
             if "Sensory" in self.modules:
                 self.modules["Sensory"].add_task(Task(type="TAKE_INVENTORY_PHOTO"))
 
         elif type == "PHOTO_DONE":
-            print(f"[{self.name}] ✅ Sensory finalizó el escaneo en la nube. Ordenando a Navegador reanudar...")
+            print(f"[{self.name}] Sensory finished cloud scanning. Ordering Navigation to resume...")
             if "Navigation" in self.modules:
                 self.modules["Navigation"].add_task(Task(type="RESUME_AFTER_PHOTO"))
-        # =======================================================
 
         elif type == "item_added":
             item = data.get('item') if isinstance(data, dict) else data
             print(f"[{self.name}] User requested: {item}")
             if "Navigation" in self.modules:
+                self.current_item = item
                 self.modules["Navigation"].add_task(Task(type="navigate_to_item", data={"item": item}))
                 print(f"[{self.name}] Task sent to Navigation: navigate_to_item")
 
@@ -77,42 +80,46 @@ class Planner(BaseModule):
             print(f"[{self.name}] List successfully cleared.")
         
         elif type == "critical_obstacle":
-            print(f"[{self.name}] Emergency stop")
+            print(f"[{self.name}] Emergency stop triggered.")
             if "Navigation" in self.modules:
                 self.modules["Navigation"].add_task(Task(type="STOP_MOTORS"))
 
+                if self.current_item:
+                    self.replan_time = time.time() + 3.0
+                    print(f"[{self.name}] Replanning to '{self.current_item}' scheduled in 3 seconds...")
+
         elif type == "VOICE_DETECTED":
-            print(f"[{self.name}] Humano dijo: '{data}'")
+            print(f"[{self.name}] Human said: '{data}'")
             if self.fase_actual == "fase_1_escaneo":
                 self.frase_pendiente = data
-                print(f"[{self.name}] Enviando Task a Sensory: TAKE_PHOTO")
+                print(f"[{self.name}] Sending Task to Sensory: TAKE_PHOTO")
                 if "Sensory" in self.modules:
                     self.modules["Sensory"].add_task(Task(type="TAKE_PHOTO"))
             else:
                 if "HRI" in self.modules:
-                    print(f"[{self.name}] Enviando Task a HRI: SEND_TO_CLOUD (solo voz)")
+                    print(f"[{self.name}] Sending Task to HRI: SEND_TO_CLOUD (voice only)")
                     self.modules["HRI"].add_task(Task(type="SEND_TO_CLOUD", data=data))
 
         elif type == "PHOTO_READY":
-            print(f"[{self.name}] Foto lista en el flujo de escaneo humano.")
+            print(f"[{self.name}] Photo ready in human scanning flow.")
             if self.frase_pendiente:
-                print(f"[{self.name}] Enviando Task a HRI: SEND_TO_CLOUD (Voz + Foto delegada)")
+                print(f"[{self.name}] Sending Task to HRI: SEND_TO_CLOUD (Voice + Delegated Photo)")
                 if "HRI" in self.modules:
                     self.modules["HRI"].add_task(Task(type="SEND_TO_CLOUD", data=self.frase_pendiente))
                 self.frase_pendiente = None
 
         elif type == "CLOUD_RESPONSE":
-            print(f"[{self.name}] Procesando datos devueltos por la API de Cart-ON.")
+            print(f"[{self.name}] Processing data returned by Cart-ON API.")
             if isinstance(data, dict):
                 nuevo_estado = data.get("estado_actual")
                 if nuevo_estado and nuevo_estado != self.fase_actual:
-                    print(f"[{self.name}] Transición de fase: {self.fase_actual} -> {nuevo_estado}")
+                    print(f"[{self.name}] Phase transition: {self.fase_actual} -> {nuevo_estado}")
                     self.fase_actual = nuevo_estado
 
                 lista_compra = data.get("lista_compra")
-                print(f"[{self.name}] Lista recibida: {lista_compra}")
+                print(f"[{self.name}] Shopping list received: {lista_compra}")
                 if isinstance(lista_compra, dict) and "Data" in self.modules:
-                    print(f"[{self.name}] Sincronizando lista de la compra local desde Cloud.")
+                    print(f"[{self.name}] Synchronizing local shopping list from Cloud.")
                     self.modules["Data"].add_task(Task(type="sync_shopping_list", data=lista_compra))
 
                 if "HRI" in self.modules:
@@ -136,11 +143,18 @@ class Planner(BaseModule):
             try:
                 event = self.event_queue.get()
                 self.handle_event(event)
-                self.event_queue.task_done()
             except Empty:
                 break
             except Exception as e:
-                print(f"[{self.name}] Error procesando evento de la cola: {e}")
+                print(f"[{self.name}] Error processing event from queue: {e}")
+            finally:
+                self.event_queue.task_done()
+        
+        if self.replan_time and time.time() >= self.replan_time:
+            if self.current_item and "Navigation" in self.modules:
+                print(f"[{self.name}] Security timeout reached. Recalculating path to: {self.current_item}")
+                self.modules["Navigation"].add_task(Task(type="navigate_to_item", data={"item": self.current_item}))
+            self.replan_time = None  # Reseteamos el temporizador
 
     def run(self):
         print(f"[{self.name}] Started.")

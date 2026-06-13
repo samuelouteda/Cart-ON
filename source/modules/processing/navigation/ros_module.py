@@ -10,6 +10,7 @@ from core.base_module import BaseModule
 from .ros_bridge import ROSBridge
 from .wheel_odom import WheelOdom
 from modules.actuation.wheel_firm import WheelFirm
+from core.constants import INDENT_OUTPUT
 
 class ROSModule(BaseModule):
 
@@ -29,20 +30,20 @@ class ROSModule(BaseModule):
         self.map_saved = False
 
     def run(self):
-        print(f"[{self.name}] 0. Netejant processos residuals...")
+        print(f"{INDENT_OUTPUT}[{self.name}] 0. Netejant processos residuals...")
         subprocess.run(["pkill", "-f", "slam_toolbox"], capture_output=True)
         subprocess.run(["pkill", "-f", "sllidar_node"], capture_output=True)
         subprocess.run(["pkill", "-f", "static_transform_publisher"], capture_output=True)
         time.sleep(3)
 
-        print(f"[{self.name}] 1. Engegant LiDAR C1...")
+        print(f"{INDENT_OUTPUT}[{self.name}] 1. Engegant LiDAR C1...")
         self.lidar_process = subprocess.Popen([
             "ros2", "launch", "sllidar_ros2", "sllidar_c1_launch.py",
             "serial_port:=/dev/ttyUSB0"
         ])
         time.sleep(3)
 
-        print(f"[{self.name}] 2. Publicant TF base_link → laser...")
+        print(f"{INDENT_OUTPUT}[{self.name}] 2. Publicant TF base_link → laser...")
         self.tf_laser_process = subprocess.Popen([
             "ros2", "run", "tf2_ros", "static_transform_publisher",
             "--x", "0", "--y", "0", "--z", "0.1",
@@ -50,7 +51,7 @@ class ROSModule(BaseModule):
         ])
         time.sleep(1)
 
-        print(f"[{self.name}] 3. Engegant WheelFirm i WheelOdom...")
+        print(f"{INDENT_OUTPUT}[{self.name}] 3. Engegant WheelFirm i WheelOdom...")
         self.wheel_firm = WheelFirm(port="/dev/ttyACM0")
         self.wheel_odom = WheelOdom()
         self.wheel_firm.set_odom_node(self.wheel_odom)
@@ -62,7 +63,7 @@ class ROSModule(BaseModule):
         while time.time() < fi:
             self.executor_odom.spin_once(timeout_sec=0.1)
 
-        print(f"[{self.name}] 4. Engegant slam_toolbox...")
+        print(f"{INDENT_OUTPUT}[{self.name}] 4. Engegant slam_toolbox...")
         self.slam_process = subprocess.Popen([
             "ros2", "launch", "slam_toolbox", "online_async_launch.py",
             "slam_params_file:=/home/carton/Cart-ON/source/config/slam_params.yaml"
@@ -96,7 +97,7 @@ class ROSModule(BaseModule):
                 self.shared_data["scan"] = self.bridge.latest_scan
                 self.scan_counter += 1
                 if self.scan_counter % 20 == 0:
-                    print(f"[{self.name}] Mapejant... ({self.scan_counter}/{self.MAX_SCANS})")
+                    print(f"{INDENT_OUTPUT}[{self.name}] Mapejant... ({self.scan_counter}/{self.MAX_SCANS})")
                 self.bridge.latest_scan = None
 
             # Actualitza mapa i activa exploració
@@ -105,20 +106,20 @@ class ROSModule(BaseModule):
                 if not self.shared_data.get("exploration_started", False):
                     self.shared_data["exploration_started"] = True
                     self.shared_data["pending_task"] = "start_exploration"
-                    print(f"[{self.name}] Primer mapa rebut. Activant exploració...")
+                    print(f"{INDENT_OUTPUT}[{self.name}] Primer mapa rebut. Activant exploració...")
 
             # Guarda mapa quan tenim prous scans
             if self.scan_counter >= self.MAX_SCANS and self.bridge.latest_map:
                 self.guardar_mapa_i_tancar()
             elif self.scan_counter >= self.MAX_SCANS:
                 if self.scan_counter % 100 == 0:
-                    print(f"[{self.name}] ⏳ Esperant /map... (Scans: {self.scan_counter})")
+                    print(f"{INDENT_OUTPUT}[{self.name}] Esperant /map... (Scans: {self.scan_counter})")
                 self.scan_counter += 1
 
         time.sleep(0.01)
 
     def guardar_mapa_i_tancar(self):
-        print(f"[{self.name}] Guardant mapa...")
+        print(f"{INDENT_OUTPUT}[{self.name}] Guardant mapa...")
         self.map_saved = True
         time.sleep(2)
 
@@ -134,13 +135,13 @@ class ROSModule(BaseModule):
                text=True, timeout=15.0)
 
             if resultado.returncode == 0:
-                print(f"[{self.name}] ✅ Mapa guardat a {ruta_mapa}")
+                print(f"{INDENT_OUTPUT}[{self.name}] Mapa guardat a {ruta_mapa}")
             else:
-                print(f"[{self.name}] ❌ Error: {resultado.stderr}")
+                print(f"{INDENT_OUTPUT}[{self.name}] Error: {resultado.stderr}")
         except subprocess.TimeoutExpired:
-            print(f"[{self.name}] ❌ Timeout guardant mapa")
+            print(f"{INDENT_OUTPUT}[{self.name}] Timeout guardant mapa")
         except Exception as e:
-            print(f"[{self.name}] ❌ Error: {e}")
+            print(f"{INDENT_OUTPUT}[{self.name}] Error: {e}")
 
         self.shutdown_nodes()
 
@@ -152,7 +153,7 @@ class ROSModule(BaseModule):
                 self.executor.remove_node(self.bridge)
                 self.bridge.destroy_node()
             except Exception as e:
-                print(f"[{self.name}] Error destruint bridge: {e}")
+                print(f"{INDENT_OUTPUT}[{self.name}] Error destruint bridge: {e}")
         if self.slam_process:
             self.slam_process.terminate()
             self.slam_process.wait()
@@ -161,5 +162,5 @@ class ROSModule(BaseModule):
             self.lidar_process.wait()
         if self.tf_laser_process:
             self.tf_laser_process.terminate()
-        print(f"[{self.name}] Tot apagat.")
+        print(f"{INDENT_OUTPUT}[{self.name}] Tot apagat.")
         sys.exit(0)

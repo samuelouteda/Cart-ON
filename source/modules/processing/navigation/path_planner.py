@@ -107,7 +107,7 @@ class PathPlanner:
             if cx < 0 or cx >= self.width or cy < 0 or cy >= self.height:
                 return False
             val = self.grid[cy, cx]
-            return val >= 0 and val <= self.OBSTACLE_THRESHOLD
+            return val == -1 or (0 <= val <= self.OBSTACLE_THRESHOLD)
 
         open_set = []
         heapq.heappush(open_set, (0, start))
@@ -135,7 +135,12 @@ class PathPlanner:
                 neighbor = (nx, ny)
                 if not is_free(nx, ny):
                     continue
-                move_cost = 1.414 if dx != 0 and dy != 0 else 1.0
+
+                val = self.grid[ny, nx]
+                penalty = 5.0 if val == -1 else 0.0
+                base_cost = 1.414 if dx != 0 and dy != 0 else 1.0
+                move_cost = base_cost + penalty
+
                 tentative_g = g_score[current] + move_cost
                 if tentative_g < g_score.get(neighbor, float('inf')):
                     came_from[neighbor] = current
