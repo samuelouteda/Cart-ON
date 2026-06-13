@@ -56,6 +56,38 @@ class MotionController:
         else:
             print(f"[MotionController] Timeout o cancel·lat.")
         return False
+    
+    def turn_relative(self, angle_radians):
+        """Gira el robot un ángulo relativo usando la odometría (Bucle Cerrado)"""
+        self.stop_requested = False
+        self.active = True
+        
+        # Calculamos el ángulo objetivo sumando el giro al ángulo actual
+        target_angle = self._normalize_angle(self.current_theta + angle_radians)
+        timeout = time.time() + 10.0 # Timeout de seguridad de 10 seg
+
+        print(f"[MotionController] Girando {math.degrees(angle_radians):.0f}º usando Encoders...")
+
+        while self.active and not self.stop_requested and time.time() < timeout:
+            angle_error = self._normalize_angle(target_angle - self.current_theta)
+            
+            # Si el error es menor que el umbral (0.1 rad), ¡hemos llegado!
+            if abs(angle_error) < ANGLE_THRESHOLD:
+                self.fw.stop()
+                print("[MotionController] Giro completado con éxito.")
+                return True
+
+            # Corregimos izquierda o derecha
+            if angle_error > 0:
+                self.fw.giro_izq(SPEED_TURN)
+            else:
+                self.fw.giro_der(SPEED_TURN)
+
+            time.sleep(0.05) # Pequeña pausa para no saturar la CPU
+
+        self.fw.stop()
+        print("[MotionController] Timeout o parada solicitada durante el giro.")
+        return False
 
     def follow_path(self, waypoints):
         print(f"[MotionController] Seguint ruta de {len(waypoints)} waypoints...")

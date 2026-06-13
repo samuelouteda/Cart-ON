@@ -36,7 +36,7 @@ class Navigation(BaseModule):
         self.home_y = 0.0
         self.returning_home = False
         
-        self.destinations_queue = [] #cola paradas super
+        self.destinations_queue = [] # Cola paradas super
 
         # VARIABLES DE ESCANEO DE ESTANTERÍAS (OPCIÓN B)
         self.is_scanning_shelf = False
@@ -287,7 +287,7 @@ class Navigation(BaseModule):
             self._update_pose_from_odom()
 
     # ========================================================
-    # LA COREOGRAFÍA DE ESCANEO ("EL BAILE")
+    # LA COREOGRAFÍA DE ESCANEO ("EL BAILE" CON ODOMETRÍA)
     # ========================================================
     def _execute_shelf_scan_maneuver(self):
         self.is_scanning_shelf = True
@@ -298,30 +298,23 @@ class Navigation(BaseModule):
         
         time.sleep(1) # Dejar que la inercia pare
         
-        # 2. Girar 90º a la Derecha para encarar la estantería
-        print(f"{INDENT_OUTPUT}[{self.name}] Turning towards the shelf...")
-        if self.motion_controller and self.motion_controller.fw:
-            # TUNEA ESTE SLEEP: Es el tiempo que tu Arduino tarda en girar 90º exactos a velocidad 120
-            self.motion_controller.fw.giro_der(120)
-            time.sleep(1.8) 
-            self.motion_controller.fw.stop()
+        # 2. Girar 90º a la Derecha para encarar la estantería (-Pi/2 radianes)
+        print(f"{INDENT_OUTPUT}[{self.name}] ↪️ Girando hacia la estantería (con odometría)...")
+        if self.motion_controller:
+            self.motion_controller.turn_relative(-math.pi / 2) # -90 grados
         
-        time.sleep(0.5)
+        time.sleep(0.5) # Pausa mínima para estabilizar la cámara
         
-        # 3. Disparar evento para que vision.py haga la foto
         # 3. Disparar evento PARA EL PLANNER
-        print(f"{INDENT_OUTPUT}[{self.name}] Notifying Planner that the shelf is ready...")
+        print(f"{INDENT_OUTPUT}[{self.name}] 📸 Avisando al Planner de que la estantería está lista...")
         self.publish_event(Event(origin=self.name, type="SHELF_DETECTED"))
         # Nos quedamos en modo is_scanning_shelf = True hasta que vision.py grite "PHOTO_DONE"
 
     def _resume_after_scan(self):
-        # 4. Deshacer el giro (-90º) para volver a mirar al frente
-        print(f"{INDENT_OUTPUT}[{self.name}] Recovering original orientation...")
-        if self.motion_controller and self.motion_controller.fw:
-            # TUNEA ESTE SLEEP: Mismo tiempo que el giro anterior
-            self.motion_controller.fw.giro_izq(120)
-            time.sleep(1.8) 
-            self.motion_controller.fw.stop()
+        # 4. Deshacer el giro (+90º) para volver a mirar al frente
+        print(f"{INDENT_OUTPUT}[{self.name}] ↩️ Recuperando orientación original (con odometría)...")
+        if self.motion_controller:
+            self.motion_controller.turn_relative(math.pi / 2) # +90 grados
 
         self.last_scan_time = time.time() # Reseteamos el cooldown de 20s
         self.is_scanning_shelf = False

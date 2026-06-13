@@ -1,103 +1,121 @@
-from queue import Queue
-from collections import deque as Deque
-from dotenv import load_dotenv
-import os
-import sys
 import time
+from queue import Queue
+import sys
 
-linux_mode = 0
-if sys.platform.startswith("linux"):
-    linux_mode = 1
-
-if linux_mode:
-    import rclpy
-    rclpy.init()
-    from modules.processing.navigation.ros_module import ROSModule
-
-from modules.decision_making.planner import Planner
-from modules.processing.navigation.navigation import Navigation
-from modules.processing.HRI.HRI import HRI
-from modules.processing.data.data_manager import DataModule
-from modules.sensor.sensor import SensoryModule
+# Importamos el Orquestador y las estructuras core
 from core.event import Event
+from core.task import Task
+from modules.decision_making.planner import Planner
+
+# Importamos los Módulos del Robot
+from modules.processing.navigation.navigation import Navigation
+from modules.sensor.sensor import SensoryModule
+# (Asegúrate de que las rutas de HRI y Data coincidan con tus carpetas)
+from modules.processing.HRI import HRI 
+from modules.processing.data import Data
+
+# Importamos la Capa de Actuación (Motores y Odometría)
+from modules.actuation.wheel_firm import WheelFirm
+from modules.processing.navigation.wheel_odom import WheelOdom
 
 def main():
-    # ==================================================================================================
-    # Inicializacion de variables ======================================================================
-    # ==================================================================================================
+    print("🤖 [MAIN] Iniciando Cart-ON Local OS...")
 
-    event_bus = Queue()
-    data_task_bus = Queue()
-    sensor_data = {}
-    shared_data = {}
+    # =======================================================
+    # 🧠 1. CREAMOS LAS MEMORIAS Y BUSES COMPARTIDOS
+    # =======================================================
+    event_bus = Queue()               # El bus central donde todos los eventos gritan al Planner
+    data_task_bus = {}                # Buzones específicos si hicieran falta
+    shared_sensor_stream = {}         # Datos en crudo en tiempo real (distancia, audio, etc.)
+    shared_data = {}                  # Memoria global (mapas, hardware, localizaciones)
 
-    api_key = ""
-    load_dotenv()
-    api_key = os.getenv("API_KEY")
+    # =======================================================
+    # ⚙️ 2. INICIALIZAMOS EL HARDWARE FÍSICO (ARDUINO)
+    # =======================================================
+    print("🔌 [MAIN] Conectando con Arduino por Serial...")
+    # ⚠️ Ajusta el puerto a tu Raspberry/Ubuntu (/dev/ttyACM0 o /dev/ttyUSB0)
+    wheel_firm = WheelFirm(port="/dev/ttyACM0", baud=115200)
+    
+    # Inyectamos el firmware en la memoria compartida para que Navigation lo pueda coger
+    shared_data["wheel_firm"] = wheel_firm 
 
-    if not api_key:
-        print("Critical error: Missing API_KEY (Voice STT/TTS) in the .env file")
-        exit()
+    # Vinculamos la odometría a los encoders de las ruedas
+    try:
+        wheel_odom = WheelOdom()
+        wheel_firm.set_odom_node(wheel_odom)
+        shared_data["odom"] = wheel_odom
+        print("✅ [MAIN] Odometría vinculada a los encoders.")
+    except Exception as e:
+        print(f"⚠️ [MAIN] Problema inicializando WheelOdom: {e}")
 
-    # ==================================================================================================
-    # Instanciacion de modulos =========================================================================
-    # ==================================================================================================
+    # Damos 2 segundos para que el Arduino se reinicie tranquilamente tras abrir el puerto Serial
+    time.sleep(2)
 
+    if not wheel_firm.is_connected():
+        print("🔴 [MAIN] ADVERTENCIA CRÍTICA: Arduino no conectado. Los motores no funcionarán.")
+
+    # =======================================================
+    # 🧩 3. INSTANCIAMOS LOS MÓDULOS DE SOFTWARE
+    # =======================================================
+    print("📦 [MAIN] Instanciando módulos de procesamiento...")
+    
+    # El Jefe
     planner = Planner(event_bus)
-    navigation = Navigation("Navigation", event_bus, sensor_data, data_task_bus, shared_data)
-    sensory = SensoryModule("Sensory", event_bus, sensor_data, data_task_bus, shared_data)
-    human_interaction = HRI("HRI", event_bus, sensor_data, api_key, data_task_bus, shared_data)
-    data_manager = DataModule("Data", event_bus, data_task_bus, shared_data)
+    
+    # Los Esclavos
+    navigation = Navigation("Navigation", event_bus, shared_sensor_stream, data_task_bus, shared_data)
+    sensory = SensoryModule("Sensory", event_bus, shared_sensor_stream, data_task_bus, shared_data)
+    hri = HRI("HRI", event_bus, shared_sensor_stream, data_task_bus, shared_data)
+    data_module = Data("Data", event_bus, shared_sensor_stream, data_task_bus, shared_data)
 
-    # ==================================================================================================
-    # Acoplamiento de modulos ==========================================================================
-    # ==================================================================================================
+    # =======================================================
+    # 🔗 4. CONECTAMOS LOS MÓDULOS AL ORQUESTADOR
+    # =======================================================
+    planner.append_modules([navigation, sensory, hri, data_module])
 
-    planner.append_modules([navigation, sensory, human_interaction, data_manager])
-
-    if linux_mode:
-        ros_module = ROSModule("ROS", event_bus, shared_data)
-        planner.append_single_module(ros_module)
-
-    # ==================================================================================================
-    # Inicio de hilos ==================================================================================
-    # ==================================================================================================
-
-    planner.start()
+    # =======================================================
+    # 🚀 5. ARRANCAMOS LOS MOTORES DE SOFTWARE (HILOS)
+    # =======================================================
+    print("🔥 [MAIN] Arrancando hilos paralelos...")
     navigation.start()
     sensory.start()
-    human_interaction.start()
-    data_manager.start()
+    hri.start()
+    data_module.start()
+    
+    # El Planner arranca el último para asegurarse de que todos están listos
+    planner.start()
 
-    if linux_mode:
-        ros_module.start()
+    print("✅ [MAIN] SISTEMA CART-ON TOTALMENTE OPERATIVO. Pulsa Ctrl+C para apagar.")
 
-    # ==================================================================================================
-    # Bucle de vigilancia del hilo principal ===========================================================
-    # ==================================================================================================
-
+    # =======================================================
+    # ♾️ 6. BUCLE INFINITO DE MANTENIMIENTO
+    # =======================================================
     try:
         while True:
+            # El hilo principal solo se queda dormido manteniendo el programa vivo
             time.sleep(1)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        event_bus.put(Event(type="shutdown", origin="Main"))
-    
-    try:
-        planner.join(timeout=2)
-        navigation.join(timeout=2)
-        sensory.join(timeout=2)
-        human_interaction.join(timeout=2)
-        data_manager.join(timeout=2)
 
-        if linux_mode:
-            ros_module.join(timeout=2)
-            rclpy.shutdown()
-        
-        
     except KeyboardInterrupt:
-        pass
+        print("\n🛑 [MAIN] Apagado manual detectado (Ctrl+C). Iniciando protocolo de parada...")
+    
+    finally:
+        # =======================================================
+        # 🧹 7. LIMPIEZA FINAL Y FRENO DE EMERGENCIA FÍSICO
+        # =======================================================
+        print("🧹 [MAIN] Cerrando módulos de forma segura...")
+        # Le gritamos al Planner que apague todo el software
+        event_bus.put(Event(type="shutdown", origin="Main"))
+        
+        # Damos 1.5 segundos para que los hilos terminen sus tareas y mueran en paz
+        time.sleep(1.5) 
+        
+        # PARADA DE SEGURIDAD ABSOLUTA DEL HARDWARE
+        print("🛑 [MAIN] Cortando energía a los motores...")
+        if wheel_firm:
+            wheel_firm.close()
+            
+        print("🏁 [MAIN] Cart-ON OS apagado correctamente. ¡Hasta la próxima!")
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
