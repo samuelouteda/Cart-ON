@@ -3,6 +3,8 @@ import math
 import threading
 import numpy as np
 
+from core.constants import INDENT_OUTPUT
+
 class PathPlanner:
 
     OBSTACLE_THRESHOLD = 50
@@ -30,7 +32,7 @@ class PathPlanner:
             raw = np.array(occupancy_grid_msg.data, dtype=np.int8)
             self.grid = raw.reshape((self.height, self.width))
             self._inflate_obstacles()
-            print(f"[PathPlanner] Mapa actualitzat: {self.width}x{self.height}, res={self.resolution}m")
+            print(f"{INDENT_OUTPUT}[PathPlanner] Mapa actualitzat: {self.width}x{self.height}, res={self.resolution}m")
 
     def _inflate_obstacles(self):
         inflated = self.grid.copy()
@@ -54,25 +56,47 @@ class PathPlanner:
         wx = cx * self.resolution + self.origin_x + self.resolution / 2
         wy = cy * self.resolution + self.origin_y + self.resolution / 2
         return wx, wy
+    
+    def get_nearest_free_cell(self, cx, cy, max_search_radius=10):
+        """Busca la celda libre más cercana si el objetivo original está bloqueado."""
+        if self.grid[cy, cx] >= 0 and self.grid[cy, cx] <= self.OBSTACLE_THRESHOLD:
+            return (cx, cy) # Ya está libre
+
+        # Búsqueda en espiral (BFS) para encontrar una celda libre cercana
+        for r in range(1, max_search_radius):
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    nx, ny = cx + dx, cy + dy
+                    if 0 <= nx < self.width and 0 <= ny < self.height:
+                        val = self.grid[ny, nx]
+                        if val >= 0 and val <= self.OBSTACLE_THRESHOLD:
+                            return (nx, ny)
+        return None # No hay celdas libres cerca
 
     def plan(self, start_wx, start_wy, goal_wx, goal_wy):
         with self._map_lock:
             if self.grid is None:
-                print("[PathPlanner] No hi ha mapa disponible.")
+                print(f"{INDENT_OUTPUT}[PathPlanner] No hi ha mapa disponible.")
                 return None
 
             start = self.world_to_cell(start_wx, start_wy)
             goal  = self.world_to_cell(goal_wx, goal_wy)
-            print(f"[PathPlanner] Planificant: {start} → {goal}")
+            print(f"{INDENT_OUTPUT}[PathPlanner] Planificant: {start} → {goal}")
+
+            valid_goal = self.get_nearest_free_cell(goal[0], goal[1])
+            if valid_goal is None:
+                print(f"{INDENT_OUTPUT}[PathPlanner] Destino y alrededores totalmente bloqueados.")
+                return None
+            goal = valid_goal
 
             path_cells = self._astar(start, goal)
             if path_cells is None:
-                print("[PathPlanner] No s'ha trobat ruta.")
+                print(f"{INDENT_OUTPUT}[PathPlanner] No s'ha trobat ruta.")
                 return None
 
             waypoints = [self.cell_to_world(cx, cy) for cx, cy in path_cells]
             waypoints = self._simplify_path(waypoints)
-            print(f"[PathPlanner] Ruta trobada: {len(waypoints)} waypoints.")
+            print(f"{INDENT_OUTPUT}[PathPlanner] Ruta trobada: {len(waypoints)} waypoints.")
             return waypoints
 
     def _astar(self, start, goal):

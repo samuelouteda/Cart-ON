@@ -5,7 +5,7 @@ from modules.processing.navigation.path_planner import PathPlanner
 from modules.processing.navigation.frontier_explorer import FrontierExplorer
 from modules.actuation.motion_controller import MotionController
 
-# 🌍 IMPORTAMOS EL TRADUCTOR DE COORDENADAS
+# IMPORTAMOS EL TRADUCTOR DE COORDENADAS
 from modules.processing.navigation.coordinate_transformer import CoordinateTransformer
 
 import threading
@@ -31,18 +31,18 @@ class Navigation(BaseModule):
         self.wheel_firm = None
         self.motion_controller = None
 
-        # 🏠 VARIABLES DE "RETURN TO HOME"
+        # VARIABLES DE "RETURN TO HOME"
         self.home_x = 0.0
         self.home_y = 0.0
         self.returning_home = False
         
         self.destinations_queue = [] #cola paradas super
 
-        # 📸 VARIABLES DE ESCANEO DE ESTANTERÍAS (OPCIÓN B)
+        # VARIABLES DE ESCANEO DE ESTANTERÍAS (OPCIÓN B)
         self.is_scanning_shelf = False
         self.last_scan_time = 0.0
 
-        # 🗺️ CONFIGURACIÓN DEL ORIGEN GPS (Ej: Puerta principal del edificio)
+        # CONFIGURACIÓN DEL ORIGEN GPS (Ej: Puerta principal del edificio)
         self.gps_transformer = CoordinateTransformer(origin_lat=41.502, origin_lon=2.104, yaw_offset_rad=0.0)
 
     def _init_motion(self):
@@ -50,11 +50,11 @@ class Navigation(BaseModule):
         if wf:
             self.wheel_firm = wf
             self.motion_controller = MotionController(self.wheel_firm)
-            print(f"[{self.name}] MotionController inicialitzat.")
+            print(f"{INDENT_OUTPUT}[{self.name}] MotionController inicialitzat.")
 
     def handle_task(self, task):
         # ========================================================
-        # 🚀 1. ÓRDENES FÍSICAS PROVENIENTES DEL HRI/NUBE
+        # 1. ÓRDENES FÍSICAS PROVENIENTES DEL HRI/NUBE
         # ========================================================
         if task.type == "START_DRIVING":
             datos_destino = task.data
@@ -81,7 +81,7 @@ class Navigation(BaseModule):
                 
             # OPCIÓN B: MODO SUPERMERCADO (Múltiples destinos)
             elif ruta_supermercado:
-                print(f"{INDENT_OUTPUT}[{self.name}] 🛒 Calculando ruta óptima para {len(ruta_supermercado)} productos...")
+                print(f"{INDENT_OUTPUT}[{self.name}] Calculando ruta óptima para {len(ruta_supermercado)} productos...")
                 curr_x, curr_y = self.home_x, self.home_y
                 pendientes = ruta_supermercado.copy()
                 
@@ -92,7 +92,7 @@ class Navigation(BaseModule):
                     curr_x, curr_y = mas_cercano['x'], mas_cercano['y']
                     pendientes.remove(mas_cercano)
 
-            # 🚀 ARRANCAMOS LA PRIMERA PARADA
+            # ARRANCAMOS LA PRIMERA PARADA
             if self.destinations_queue:
                 siguiente_parada, sx, sy = self.destinations_queue.pop(0)
                 self.target_item = siguiente_parada
@@ -101,18 +101,18 @@ class Navigation(BaseModule):
                 with self._nav_lock:
                     self.nav_state = "calculating"
                 self.nav_start_time = time.time()
-                print(f"{INDENT_OUTPUT}[{self.name}] 🚗 Próxima parada: \"{self.target_item}\" (X={sx:.2f}, Y={sy:.2f})")
+                print(f"{INDENT_OUTPUT}[{self.name}] Próxima parada: \"{self.target_item}\" (X={sx:.2f}, Y={sy:.2f})")
             else:
-                print(f"{INDENT_OUTPUT}[{self.name}] ⚠️ START_DRIVING sin destinos válidos encontrados en la BD.")
+                print(f"{INDENT_OUTPUT}[{self.name}] START_DRIVING sin destinos válidos encontrados en la BD.")
 
         elif task.type == "START_MAPPING":
-            print(f"{INDENT_OUTPUT}[{self.name}] 🧭 IA autoritza mapeig. Iniciant explorador de fronteres...")
+            print(f"{INDENT_OUTPUT}[{self.name}] IA autoritza mapeig. Iniciant explorador de fronteres...")
             self.exploring = True
             self.frontier_explorer.reset()
             self._exploration_step()
             
         elif task.type == "EMERGENCY_STOP":
-            print(f"{INDENT_OUTPUT}[{self.name}] 🛑 ¡FRENADA D'EMERGÈNCIA! Ordre del HRI.")
+            print(f"{INDENT_OUTPUT}[{self.name}] ¡FRENADA D'EMERGÈNCIA! Ordre del HRI.")
             if self.motion_controller:
                 self.motion_controller.stop()
             with self._nav_lock:
@@ -122,15 +122,15 @@ class Navigation(BaseModule):
             self.is_scanning_shelf = False
 
         # ========================================================
-        # 📸 2. ÓRDENES DEL PLANNER PARA REANUDAR ESCANEO
+        # 2. ÓRDENES DEL PLANNER PARA REANUDAR ESCANEO
         # ========================================================
         elif task.type == "RESUME_AFTER_PHOTO":
             if self.is_scanning_shelf:
-                print(f"{INDENT_OUTPUT}[{self.name}] ✅ El Planner ordena reanudar. Retomando ruta...")
+                print(f"{INDENT_OUTPUT}[{self.name}] El Planner ordena reanudar. Retomando ruta...")
                 threading.Thread(target=self._resume_after_scan, daemon=True).start()
 
         # ========================================================
-        # ⚙️ 3. ÓRDENES INTERNAS ANTIGUAS
+        # 3. ÓRDENES INTERNAS ANTIGUAS
         # ========================================================
         elif task.type == "navigate_to_item":
             self.target_item = task.data['item']
@@ -200,7 +200,7 @@ class Navigation(BaseModule):
                 if len(puntos_derecha) > 10:
                     varianza = max(puntos_derecha) - min(puntos_derecha)
                     if varianza < 150: 
-                        print(f"{INDENT_OUTPUT}[{self.name}] 🛒 ¡Geometría de ESTANTERÍA detectada a la derecha!")
+                        print(f"{INDENT_OUTPUT}[{self.name}] ¡Geometría de ESTANTERÍA detectada a la derecha!")
                         threading.Thread(target=self._execute_shelf_scan_maneuver, daemon=True).start()
 
             # B) ANTI-CHOQUES DE SEGURIDAD FRONTALES
@@ -209,7 +209,7 @@ class Navigation(BaseModule):
                     for qualitat, angle, distancia in punts_laser:
                         if angle > 340 or angle < 20:
                             if 0 < distancia < 400:
-                                print(f"[{self.name}] ¡CRÍTICH! Obstacle a {distancia} mm")
+                                print(f"{INDENT_OUTPUT}[{self.name}] ¡CRÍTICH! Obstacle a {distancia} mm")
                                 self.publish_event(Event(type="critical_obstacle", origin=self.name))
                                 if self.motion_controller:
                                     with self._nav_lock:
@@ -227,7 +227,7 @@ class Navigation(BaseModule):
                                 distancia_metres = ranges[i]
                                 if 0.05 < distancia_metres < 0.20:
                                     distancia_mm = distancia_metres * 1000
-                                    print(f"[{self.name}] ¡CRÍTICH! Obstacle a {distancia_mm:.0f} mm")
+                                    print(f"{INDENT_OUTPUT}[{self.name}] ¡CRÍTICH! Obstacle a {distancia_mm:.0f} mm")
                                     self.publish_event(Event(type="critical_obstacle", origin=self.name))
                                     if self.motion_controller:
                                         with self._nav_lock:
@@ -280,7 +280,7 @@ class Navigation(BaseModule):
             self._update_pose_from_odom()
 
     # ========================================================
-    # 🩰 LA COREOGRAFÍA DE ESCANEO ("EL BAILE")
+    # LA COREOGRAFÍA DE ESCANEO ("EL BAILE")
     # ========================================================
     def _execute_shelf_scan_maneuver(self):
         self.is_scanning_shelf = True
@@ -292,9 +292,9 @@ class Navigation(BaseModule):
         time.sleep(1) # Dejar que la inercia pare
         
         # 2. Girar 90º a la Derecha para encarar la estantería
-        print(f"{INDENT_OUTPUT}[{self.name}] ↪️ Girando hacia la estantería...")
+        print(f"{INDENT_OUTPUT}[{self.name}] Girando hacia la estantería...")
         if self.motion_controller and self.motion_controller.fw:
-            # ⚠️ TUNEA ESTE SLEEP: Es el tiempo que tu Arduino tarda en girar 90º exactos a velocidad 120
+            # TUNEA ESTE SLEEP: Es el tiempo que tu Arduino tarda en girar 90º exactos a velocidad 120
             self.motion_controller.fw.giro_der(120)
             time.sleep(1.8) 
             self.motion_controller.fw.stop()
@@ -303,15 +303,15 @@ class Navigation(BaseModule):
         
         # 3. Disparar evento para que vision.py haga la foto
         # 3. Disparar evento PARA EL PLANNER
-        print(f"{INDENT_OUTPUT}[{self.name}] 📸 Avisando al Planner de que la estantería está lista...")
+        print(f"{INDENT_OUTPUT}[{self.name}] Avisando al Planner de que la estantería está lista...")
         self.publish_event(Event(origin=self.name, type="SHELF_DETECTED"))
         # Nos quedamos en modo is_scanning_shelf = True hasta que vision.py grite "PHOTO_DONE"
 
     def _resume_after_scan(self):
         # 4. Deshacer el giro (-90º) para volver a mirar al frente
-        print(f"{INDENT_OUTPUT}[{self.name}] ↩️ Recuperando orientación original...")
+        print(f"{INDENT_OUTPUT}[{self.name}] ↩Recuperando orientación original...")
         if self.motion_controller and self.motion_controller.fw:
-            # ⚠️ TUNEA ESTE SLEEP: Mismo tiempo que el giro anterior
+            # TUNEA ESTE SLEEP: Mismo tiempo que el giro anterior
             self.motion_controller.fw.giro_izq(120)
             time.sleep(1.8) 
             self.motion_controller.fw.stop()
@@ -326,8 +326,8 @@ class Navigation(BaseModule):
         
         if success and not self.is_scanning_shelf:
             if self.destinations_queue:
-                # 🛒 ¡QUEDAN PARADAS EN LA LISTA!
-                print(f"{INDENT_OUTPUT}[{self.name}] ✅ Llegamos a {self.target_item}. Esperando 5s para que cojas el producto...")
+                # ¡QUEDAN PARADAS EN LA LISTA!
+                print(f"{INDENT_OUTPUT}[{self.name}] Llegamos a {self.target_item}. Esperando 5s para que cojas el producto...")
                 time.sleep(5) # Tiempo para coger el paquete de arroz
                 
                 # Cargar el siguiente de la cola
@@ -335,13 +335,13 @@ class Navigation(BaseModule):
                 self.target_item = siguiente_parada
                 self.shared_data["item_locations"][siguiente_parada] = (sx, sy)
                 
-                print(f"{INDENT_OUTPUT}[{self.name}] 🚗 Moviéndonos a la siguiente parada: {self.target_item}...")
+                print(f"{INDENT_OUTPUT}[{self.name}] Moviéndonos a la siguiente parada: {self.target_item}...")
                 with self._nav_lock:
                     self.nav_state = "calculating"
                     
             elif not self.returning_home:
-                # 🏁 LISTA TERMINADA. VOLVEMOS A CASA
-                print(f"{INDENT_OUTPUT}[{self.name}] ✅ Destino final alcanzado. Esperando 5s antes de volver a la Base...")
+                # LISTA TERMINADA. VOLVEMOS A CASA
+                print(f"{INDENT_OUTPUT}[{self.name}] Destino final alcanzado. Esperando 5s antes de volver a la Base...")
                 time.sleep(5) 
                 
                 self.returning_home = True
@@ -350,13 +350,13 @@ class Navigation(BaseModule):
                     self.shared_data["item_locations"] = {}
                 self.shared_data["item_locations"]["HOME_BASE"] = (self.home_x, self.home_y)
                 
-                print(f"{INDENT_OUTPUT}[{self.name}] 🏠 Calculando ruta de vuelta...")
+                print(f"{INDENT_OUTPUT}[{self.name}] Calculando ruta de vuelta...")
                 with self._nav_lock:
                     self.nav_state = "calculating"
                     
             else:
-                # 🏠 LLEGAMOS A CASA
-                print(f"{INDENT_OUTPUT}[{self.name}] 🏠 He tornat a la Base! Missió completada.")
+                # LLEGAMOS A CASA
+                print(f"{INDENT_OUTPUT}[{self.name}] He tornat a la Base! Missió completada.")
                 self.publish_event(Event(type="PHYSICAL_ACTION_DONE", origin=self.name))
                 with self._nav_lock:
                     self.nav_state = "idle"
@@ -375,7 +375,7 @@ class Navigation(BaseModule):
     def _exploration_step(self):
         def _step():
             while self.exploring:
-                # 🛑 Si estamos en medio del baile de la foto, pausar el explorador
+                # Si estamos en medio del baile de la foto, pausar el explorador
                 if self.is_scanning_shelf:
                     time.sleep(0.5)
                     continue
@@ -384,7 +384,7 @@ class Navigation(BaseModule):
                 if mapa:
                     self.path_planner.update_map(mapa)
                 else:
-                    print(f"[{self.name}] Esperant mapa...")
+                    print(f"{INDENT_OUTPUT}[{self.name}] Esperant mapa...")
                     time.sleep(1)
                     continue
 
