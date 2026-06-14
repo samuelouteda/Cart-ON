@@ -34,7 +34,7 @@ class HRI(BaseModule):
         self.shared_data = shared_data
         
         # URL actualizada a tu backend Dual Oficial
-        self.cloud_url = "https://cart-on-api-sm-225606614592.europe-west1.run.app/api/v1/interaccion"
+        self.cloud_url = "https://cart-on-api-225606614592.europe-west1.run.app/api/v1/interaccion"
 
         self.speaker = Speaker("Speaker", event_bus, shared_data)
         self.display = Display("Display", event_bus, shared_data)
