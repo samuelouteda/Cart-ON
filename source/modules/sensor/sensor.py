@@ -21,7 +21,7 @@ class SensoryModule(BaseModule):
         self.shared_data = shared_data
         
         # Vision attributes
-        self.cloud_scan_url = "https://cart-on-api-225606614592.europe-west1.run.app/api/v1/escaneo_inventario"
+        self.cloud_url = "https://cart-on-api-sm-225606614592.europe-west1.run.app/api/v1/interaccion"
         self.is_scanning = False
 
     def loop(self):

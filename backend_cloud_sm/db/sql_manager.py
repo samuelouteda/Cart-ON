@@ -53,19 +53,21 @@ class SQLManager:
             if conn.is_connected():
                 cursor.close()
                 conn.close()
-
-    # ==========================================
-    # MODO ESCUELA: UBICACIÓN DIRECTA
+   # ==========================================
+    # MODO ESCUELA: UBICACIÓN DIRECTA (ESTRICTA)
     # ==========================================
     def get_classroom_location(self, nombre_aula: str):
-        """Devuelve las coordenadas exactas de un aula."""
+        """Devuelve las coordenadas exactas de un aula para generar el QR."""
         conn = self.get_connection()
         if not conn: return None
         
+        aula_limpia = nombre_aula.strip().replace(" ", "%")
+        
         try:
             cursor = conn.cursor(dictionary=True) 
+            # FÍJATE: Hemos quitado los f"%{...}%" para que no se invente finales ni principios
             query = "SELECT latitud, longitud FROM aulas_uab WHERE nombre_aula LIKE %s"
-            cursor.execute(query, (f"%{nombre_aula}%",))
+            cursor.execute(query, (aula_limpia,))
             resultado = cursor.fetchone()
             
             return resultado
@@ -81,7 +83,7 @@ class SQLManager:
     # MODO ESCUELA: HORARIO + COORDENADAS
     # ==========================================
     def get_school_info(self, asignatura: str = None, grupo: str = None, hora: str = None):
-        """Busca la clase y hace JOIN para llevarse también la ubicación del aula."""
+        """Busca la clase y hace JOIN para llevarse también la ubicación del aula para el mapa visual."""
         conn = self.get_connection()
         if not conn: return []
         
@@ -97,14 +99,22 @@ class SQLManager:
             """
             params = []
             
-            # Lógica de limpieza de palabras clave
+            # Lógica de búsqueda flexible (Anti-fallos Español/Catalán)
             if asignatura and asignatura != "producto desconocido":
-                palabras = asignatura.lower().split()
-                palabras_clave = [p for p in palabras if p not in ["de", "por", "para", "la", "el", "los", "las"]]
+                # 1. Limpiamos acentos de la petición
+                asignatura_limpia = asignatura.lower().replace('á','a').replace('é','e').replace('í','i').replace('ó','o').replace('ú','u')
+                asignatura_limpia = asignatura_limpia.replace('à','a').replace('è','e').replace('ò','o')
+                
+                palabras = asignatura_limpia.split()
+                # 2. Filtramos palabras cortas o artículos
+                palabras_clave = [p for p in palabras if len(p) > 3 and p not in ["para", "como", "pero"]]
                 
                 if palabras_clave:
-                    raiz = palabras_clave[0]
-                    raiz = raiz.replace('ó', 'o').replace('í', 'i')
+                    # 3. TRUCO: Cogemos la palabra más larga (ej: 'multimedia', 'computador')
+                    palabra_principal = max(palabras_clave, key=len)
+                    # 4. Cogemos las primeras 6 letras para evitar fallos de sufijos ES/CAT
+                    raiz = palabra_principal[:6] 
+                    
                     query += " AND LOWER(h.asignatura) LIKE %s"
                     params.append(f"%{raiz}%")
                 

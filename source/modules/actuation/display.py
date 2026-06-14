@@ -21,7 +21,7 @@ class Display:
         self.robot_text = ""                                  
         self.panel_title = "PANEL DE CONTROL"
         self.dynamic_data = {}  
-        self.footer_message = "Sistema Cart-ON (Modo Multimedia Local)"
+        self.footer_message = "Sistema Cart-ON (Local) | MODO: SUPERMERCADO"
 
         self.current_image = None 
         

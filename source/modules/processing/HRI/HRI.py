@@ -34,7 +34,7 @@ class HRI(BaseModule):
         self.shared_data = shared_data
         
         # Ojo: Asegúrate de que esta URL sea la de tu backend correcto
-        self.cloud_url = "https://cart-on-api-225606614592.europe-west1.run.app/api/v1/interaccion"
+        self.cloud_url = "https://cart-on-api-sm-225606614592.europe-west1.run.app/api/v1/interaccion"
 
         self.speaker = Speaker("Speaker", event_bus, shared_data)
         self.display = Display("Display", event_bus, shared_data)
@@ -93,6 +93,10 @@ class HRI(BaseModule):
             texto = datos_nube.get("texto", "Error en la respuesta")
             audio_b64 = datos_nube.get("audio_b64", None)
             
+            # Extraemos el modo de la nube para mostrarlo en pantalla
+            modo_actual = datos_nube.get("modo", "desconocido").upper()
+            texto_footer = f"Sistema Cart-ON (Local) | MODO: {modo_actual}"
+            
             if "lista_compra" in datos_nube:
                 self.lista_compra_local = datos_nube["lista_compra"]
 
@@ -108,25 +112,36 @@ class HRI(BaseModule):
                 maps_key = os.getenv("MAPS_API_KEY")
                 imagen_mapa = generate_location_image(aula_recibida, lat_recibida, lng_recibida, maps_key)
             
+            # Actualizamos la pantalla ANTES de hablar y le pasamos el footer
             self.display.update_data(
                 status="SPEAKING", 
                 title=f"Ruta a {aula_recibida}" if aula_recibida else "Respuesta Asistente",
                 robot_text=texto,
                 image=imagen_mapa,
-                data_dict=self.lista_compra_local
+                data_dict=self.lista_compra_local,
+                footer=texto_footer
             )
             
             print(f"\n{INDENT_OUTPUT}[{self.name}] [Cart-ON Dice]: {texto}\n")
             
-            if audio_b64:
-                try:
-                    audio_bytes = base64.b64decode(audio_b64)
-                    self.speaker.play_audio(audio_bytes)
-                except Exception as e:
-                    print(f"{INDENT_OUTPUT}[{self.name}] Error al reproducir audio: {e}")
+            # =======================================================
+            # HILO SECUNDARIO DE AUDIO (Para no congelar OpenCV)
+            # =======================================================
+            def _reproducir_y_liberar():
+                if audio_b64:
+                    try:
+                        audio_bytes = base64.b64decode(audio_b64)
+                        self.speaker.play_audio(audio_bytes)
+                    except Exception as e:
+                        print(f"{INDENT_OUTPUT}[{self.name}] Error al reproducir audio: {e}")
 
-            # Volvemos a abrir el semáforo para escuchar
-            self.puedo_escuchar.set()
+                time.sleep(0.5) # Pequeña pausa respiratoria
+                
+                # Volvemos a abrir el micrófono después de hablar
+                self.puedo_escuchar.set()
+
+            # Lanzamos el audio en un hilo aparte para que la pantalla siga refrescándose
+            threading.Thread(target=_reproducir_y_liberar, daemon=True).start()
 
     def _hacer_peticion(self, frase, foto_bytes):
         try:
@@ -210,8 +225,8 @@ class HRI(BaseModule):
                 with sr.Microphone() as source:
                     recognizer_google.adjust_for_ambient_noise(source, duration=0.5)
                     self.display.update_data(status="LISTENING", text="Te escucho...")
-                    print(f"{INDENT_OUTPUT}[{self.name}] Te escucho... (Tienes 10s para hablar)")
-                    audio = recognizer_google.listen(source, timeout=10, phrase_time_limit=10)
+                    print(f"{INDENT_OUTPUT}[{self.name}] Te escucho... (Tienes 40s para hablar)")
+                    audio = recognizer_google.listen(source, timeout=40, phrase_time_limit=40)
 
                 self.puedo_escuchar.clear()
                 self.display.update_data(status="PROCESSING", text="Traduciendo voz a texto...")
@@ -226,14 +241,17 @@ class HRI(BaseModule):
                 elif texto.strip():
                     # Flujo normal multimedia
                     self.publish_event(Event(origin=self.name, type="VOICE_DETECTED", data=texto))
-                    necesita_despertar = True  # Para que vuelva a pedir la wake word tras la respuesta
+                    necesita_despertar = False  # <--- Mantenemos al robot despierto para que la conversación fluya
                     
             except sr.WaitTimeoutError:
-                print(f"{INDENT_OUTPUT}[{self.name}] 10 segundos de inactividad. Vuelvo a dormir zZz...")
-                necesita_despertar = True
+                print(f"{INDENT_OUTPUT}[{self.name}] 40 segundos de inactividad. Vuelvo a dormir zZz...")
+                self.display.update_data(status="IDLE", text="Di 'Cartón' para despertar...")
+                necesita_despertar = True  # <--- SOLO se va a dormir si pasan los 40 segundos
+
             except sr.UnknownValueError:
                 print(f"{INDENT_OUTPUT}[{self.name}] No he entendido, repite por favor...")
                 self.puedo_escuchar.set() 
+                
             except Exception as e:
                 if self.running:
                     print(f"{INDENT_OUTPUT}[{self.name}] Error en el micrófono: {e}")

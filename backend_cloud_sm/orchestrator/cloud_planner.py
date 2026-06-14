@@ -10,10 +10,11 @@ from db.sql_manager import SQLManager
 def limpiar_nombre(texto):
     return texto.lower().strip() if texto else "producto desconocido"
 
-def crear_respuesta_cloud(texto, estado_actual, emocion="neutral", lista_compra=None, intent=None, aula=None, lat=None, lng=None, accion_fisica="NINGUNA"):
+def crear_respuesta_cloud(texto, estado_actual, modo="supermercado", emocion="neutral", lista_compra=None, intent=None, aula=None, lat=None, lng=None, accion_fisica="NINGUNA"):
     respuesta = {
         "status": "success",
         "texto": texto,
+        "modo": modo,
         "emocion": emocion,
         "estado_actual": estado_actual,
         "intent": intent,
@@ -52,19 +53,21 @@ class PlannerCloud:
             return crear_respuesta_cloud(
                 texto="Entendido. Apagando todos los sistemas interactivos. Buenas noches.",
                 estado_actual=self.estado_actual,
+                modo=self.modo_entorno,
                 emocion="feliz",
                 lista_compra=self.lista_compra,
                 intent="shutdown",
                 accion_fisica="SHUTDOWN"
             )
 
-        # 1. INTERCEPTORES DE CAMBIO DE MODO
-        if "modo escuela" in texto_bajo:
+        # 1. INTERCEPTORES DE CAMBIO DE MODO (Acepta sinónimos)
+        if any(kw in texto_bajo for kw in ["modo escuela", "modo universitario", "universidad", "modo campus"]):
             self.modo_entorno = "escuela"
-            return crear_respuesta_cloud("Modo escuela activado. Ahora soy tu guía universitario de la UAB.", self.estado_actual, "feliz", self.lista_compra, "change_mode")
-        elif "modo supermercado" in texto_bajo:
+            return crear_respuesta_cloud("Modo universitario activado. Ahora soy tu guía del campus de la UAB.", self.estado_actual, modo=self.modo_entorno, emocion="feliz", lista_compra=self.lista_compra, intent="change_mode")
+            
+        elif any(kw in texto_bajo for kw in ["modo supermercado", "modo tienda", "compras", "supermercado"]):
             self.modo_entorno = "supermercado"
-            return crear_respuesta_cloud("Modo supermercado activado. Listo para rellenar la lista de la compra.", self.estado_actual, "feliz", self.lista_compra, "change_mode")
+            return crear_respuesta_cloud("Modo supermercado activado. Listo para rellenar la lista de la compra.", self.estado_actual, modo=self.modo_entorno, emocion="feliz", lista_compra=self.lista_compra, intent="change_mode")
 
         # 2. PROCESAMIENTO SEMÁNTICO NORMAL CON QWEN NLP
         resultado_nlp = self.nlp.parse_intent(texto_usuario, modo=self.modo_entorno)
@@ -78,6 +81,10 @@ class PlannerCloud:
             intent, item_crudo, quantity, group, time_val, reply, emocion_intent = "unknown", "producto desconocido", 1, None, None, None, "neutral"
 
         item = limpiar_nombre(item_crudo)
+        
+        # CHIVATO PARA LA CONSOLA: Así veremos si Qwen se equivoca
+        print(f"👉 [DEBUG CLOUD] Modo: {self.modo_entorno.upper()} | Intent: '{intent}' | Item: '{item}'")
+
         contexto_interno = ""
         accion_final = "NINGUNA"
 
@@ -86,7 +93,7 @@ class PlannerCloud:
         lat_objetivo = None
         lng_objetivo = None
 
-       # --- CAPA DE NEGOCIO A: MODO SUPERMERCADO ---
+        # --- CAPA DE NEGOCIO A: MODO SUPERMERCADO ---
         if self.modo_entorno == "supermercado":
             
             # 1. AÑADIR PRODUCTOS
@@ -128,6 +135,9 @@ class PlannerCloud:
                     lat_objetivo = coords['latitud']
                     lng_objetivo = coords['longitud']
                     contexto_interno = f"Le muestras en pantalla el mapa del aula {item}."
+                else:
+                    # BLOQUEO DE ALUCINACIÓN
+                    contexto_interno = f"El usuario te ha pedido buscar la ubicación de {item}, pero NO existe en la base de datos. Pídele disculpas e indícale amablemente que no tienes las coordenadas de ese lugar."
                         
             elif intent == "schedule_query":
                 info_clases = self.sql.get_school_info(item, group, time_val)
@@ -136,7 +146,9 @@ class PlannerCloud:
                     lat_objetivo = info_clases[0].get('latitud')
                     lng_objetivo = info_clases[0].get('longitud')
                     contexto_interno = f"Has encontrado su clase en el aula {aula_objetivo}. Dile que le has puesto el mapa en pantalla."
-
+                else:
+                    contexto_interno = f"El usuario preguntó por la clase {item}, pero NO has encontrado horarios. Informa de que no hay registros."
+        
         # 3. GENERAR RESPUESTA FINAL CON EMOCIÓN DE LOS OJOS
         if not contexto_interno:
             contexto_interno = "Responde amablemente a lo que te ha dicho el usuario."
@@ -151,9 +163,16 @@ class PlannerCloud:
         print(f"[PlannerCloud] Emoción final inyectada: -> {emocion_ojos.upper()} <-")
 
         return crear_respuesta_cloud(
-            texto=respuesta_natural, estado_actual=self.estado_actual, emocion=emocion_ojos,
-            lista_compra=self.lista_compra, intent=intent, aula=aula_objetivo, lat=lat_objetivo,
-            lng=lng_objetivo, accion_fisica=accion_final
+            texto=respuesta_natural, 
+            estado_actual=self.estado_actual, 
+            modo=self.modo_entorno,  # <--- SE ENVÍA EL MODO AL FRONTEND
+            emocion=emocion_ojos,
+            lista_compra=self.lista_compra, 
+            intent=intent, 
+            aula=aula_objetivo, 
+            lat=lat_objetivo,
+            lng=lng_objetivo, 
+            accion_fisica=accion_final
         )
 
     # =========================================================================
@@ -195,7 +214,7 @@ class PlannerCloud:
             print(f"[Vision] Error en la inferencia del VLM: {e}")
             detecciones = []
 
-        # 2. Guardar e indexar stock en MySQL (Sin coordenadas GPS locales)
+        # 2. Guardar e indexar stock en MySQL
         if detecciones:
             conn = self.sql.get_connection()
             if conn:
@@ -232,14 +251,10 @@ class PlannerCloud:
                 for item in detecciones:
                     caja = item.get("caja", [])
                     if len(caja) == 4:
-                        # Qwen-VL usa formato [ymin, xmin, ymax, xmax] mapeado de 0 a 1000
                         y1, x1 = int(caja[0] * alto / 1000), int(caja[1] * ancho / 1000)
                         y2, x2 = int(caja[2] * alto / 1000), int(caja[3] * ancho / 1000)
                         
-                        # Dibujamos rectángulo verde de bounding box
                         cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)
-                        
-                        # Colocamos la etiqueta con la cantidad encima
                         label = f"{item.get('producto', '???')} x{item.get('cantidad', 1)}"
                         cv2.putText(img, label, (x1, max(y1 - 10, 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
