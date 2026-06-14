@@ -9,12 +9,7 @@ class Planner(BaseModule):
     def __init__(self, event_bus):
         super().__init__("Planner", event_bus)
         self.modules = {}
-
         self.fase_actual = "fase_2_interaccion"
-        self.frase_pendiente = None
-
-        self.current_item = None
-        self.replan_time = None
     
     def append_single_module(self, module):
         if module.name not in self.modules:
@@ -49,63 +44,14 @@ class Planner(BaseModule):
             self.running = False
             return
 
-        # Estructura de control para manejar eventos específicos
-        elif type == "SHELF_DETECTED":
-            print(f"[{self.name}] Navigator reported shelf. Ordering Sensory to take photo...")
-            if "Sensory" in self.modules:
-                self.modules["Sensory"].add_task(Task(type="TAKE_INVENTORY_PHOTO"))
-
-        elif type == "PHOTO_DONE":
-            print(f"[{self.name}] Sensory finished cloud scanning. Ordering Navigation to resume...")
-            if "Navigation" in self.modules:
-                self.modules["Navigation"].add_task(Task(type="RESUME_AFTER_PHOTO"))
-
-        elif type == "item_added":
-            item = data.get('item') if isinstance(data, dict) else data
-            print(f"[{self.name}] User requested: {item}")
-            if "Navigation" in self.modules:
-                self.current_item = item
-                self.modules["Navigation"].add_task(Task(type="navigate_to_item", data={"item": item}))
-                print(f"[{self.name}] Task sent to Navigation: navigate_to_item")
-
-        elif type == "item_deleted":
-            item = data.get('item') if isinstance(data, dict) else data
-            print(f"[{self.name}] {item} successfully deleted.")
-
-        elif type == "read_list":
-            print(f"[{self.name}] Reading list...")
-            
-        elif type == "list_cleared":
-            print(f"[{self.name}] List successfully cleared.")
-        
-        elif type == "critical_obstacle":
-            print(f"[{self.name}] Emergency stop triggered.")
-            if "Navigation" in self.modules:
-                self.modules["Navigation"].add_task(Task(type="STOP_MOTORS"))
-
-                if self.current_item:
-                    self.replan_time = time.time() + 3.0
-                    print(f"[{self.name}] Replanning to '{self.current_item}' scheduled in 3 seconds...")
-
+        # =======================================================
+        # FLUJO CONVERSACIONAL (HRI -> CLOUD)
+        # =======================================================
         elif type == "VOICE_DETECTED":
             print(f"[{self.name}] Human said: '{data}'")
-            if self.fase_actual == "fase_1_escaneo":
-                self.frase_pendiente = data
-                print(f"[{self.name}] Sending Task to Sensory: TAKE_PHOTO")
-                if "Sensory" in self.modules:
-                    self.modules["Sensory"].add_task(Task(type="TAKE_PHOTO"))
-            else:
-                if "HRI" in self.modules:
-                    print(f"[{self.name}] Sending Task to HRI: SEND_TO_CLOUD (voice only)")
-                    self.modules["HRI"].add_task(Task(type="SEND_TO_CLOUD", data=data))
-
-        elif type == "PHOTO_READY":
-            print(f"[{self.name}] Photo ready in human scanning flow.")
-            if self.frase_pendiente:
-                print(f"[{self.name}] Sending Task to HRI: SEND_TO_CLOUD (Voice + Delegated Photo)")
-                if "HRI" in self.modules:
-                    self.modules["HRI"].add_task(Task(type="SEND_TO_CLOUD", data=self.frase_pendiente))
-                self.frase_pendiente = None
+            if "HRI" in self.modules:
+                print(f"[{self.name}] Sending Task to HRI: SEND_TO_CLOUD (voice only)")
+                self.modules["HRI"].add_task(Task(type="SEND_TO_CLOUD", data=data))
 
         elif type == "CLOUD_RESPONSE":
             print(f"[{self.name}] Processing data returned by Cart-ON API.")
@@ -116,34 +62,25 @@ class Planner(BaseModule):
                     print(f"[{self.name}] Phase transition: {self.fase_actual} -> {nuevo_estado}")
                     self.fase_actual = nuevo_estado
 
+                # 1. Sincronización de lista de la compra
                 lista_compra = data.get("lista_compra")
                 print(f"[{self.name}] Shopping list received: {lista_compra}")
                 if isinstance(lista_compra, dict) and "Data" in self.modules:
                     print(f"[{self.name}] Synchronizing local shopping list from Cloud.")
                     self.modules["Data"].add_task(Task(type="sync_shopping_list", data=lista_compra))
 
+                # 2. Ejecutar habla y pantalla (Multimedia)
                 if "HRI" in self.modules:
                     self.modules["HRI"].add_task(Task(type="SPEAK", data=data))
 
-                # Forzamos la replanificación si el Cloud nos indica un nuevo item a buscar
+                # 3. Interceptar orden de apagado del asistente
                 accion = str(data.get("accion_fisica", "NINGUNA")).upper()
                 comando = str(data.get("comando_robot", "NINGUNA")).upper()
 
-                # Boton apagado
                 if accion == "SHUTDOWN" or comando == "SHUTDOWN":
                     print(f"[{self.name}] 💀 Qwen ha ordenado el APAGADO del sistema. Ejecutando...")
-                    # Inyectamos el evento de apagado en el bus para morir con honor
                     self.event_queue.put(Event(type="shutdown", origin="Cloud"))
                     return
-
-                # Ordenes movimiento
-                if "Navigation" in self.modules:
-                    if accion == "INICIAR_MAPEO" or comando == "START_SLAM":
-                        self.modules["Navigation"].add_task(Task(type="START_MAPPING"))
-                    elif accion == "INICIAR_CONDUCCION" or comando == "START_NAVIGATION":
-                        self.modules["Navigation"].add_task(Task(type="START_DRIVING", data=data))
-                    elif comando == "STOP_MOTORS":
-                        self.modules["Navigation"].add_task(Task(type="STOP_MOTORS"))
 
     def loop(self):
         while not self.event_queue.empty():
@@ -156,13 +93,6 @@ class Planner(BaseModule):
                 print(f"[{self.name}] Error processing event from queue: {e}")
             finally:
                 self.event_queue.task_done()
-        
-        # Lógica de seguridad: Reintento de ruta tras obstáculo
-        if self.replan_time and time.time() >= self.replan_time:
-            if self.current_item and "Navigation" in self.modules:
-                print(f"[{self.name}] Security timeout reached. Recalculating path to: {self.current_item}")
-                self.modules["Navigation"].add_task(Task(type="navigate_to_item", data={"item": self.current_item}))
-            self.replan_time = None  # Reseteamos el temporizador
 
     def run(self):
         print(f"[{self.name}] Started.")
@@ -170,11 +100,11 @@ class Planner(BaseModule):
         
         if "HRI" in self.modules:
             self.modules["HRI"].add_task(
-                    Task(
-                            type="SPEAK",
-                            data={"texto": "Cerebro en línea. Esperando por eventos..."}
-                    )
+                Task(
+                    type="SPEAK",
+                    data={"texto": "Sistema multimedia en línea. Esperando instrucciones."}
                 )
+            )
 
         while self.running:
             try:

@@ -3,9 +3,7 @@ from core.event import Event
 from core.constants import INDENT_OUTPUT
 
 from queue import Empty
-from time import sleep
 import time
-import speech_recognition as sr
 import cv2
 import base64
 import requests
@@ -13,40 +11,18 @@ import threading
 
 class SensoryModule(BaseModule):
     """
-    Layer 3: Continuously polls hardware and 'publishes' data.
-    Handles both Microphone (Background Thread) and Camera (On-Demand Tasks).
+    Layer 3 (Multimedia): Módulo de Visión.
+    Controla la cámara web local para sacar fotos bajo demanda y enviarlas al VLM.
     """
     def __init__(self, name, event_queue, shared_sensor_stream, data_task_bus, shared_data):
         super().__init__(name, event_queue)
         self.data_stream = shared_sensor_stream
-        self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
-
         self.data_task_bus = data_task_bus
         self.shared_data = shared_data
         
         # Vision attributes
         self.cloud_scan_url = "https://cart-on-api-225606614592.europe-west1.run.app/api/v1/escaneo_inventario"
         self.is_scanning = False
-        
-    def capture_audio(self):
-        # modulo hardware que captura la entrada de audio del entorno
-        with self.microphone as source:
-            try:
-                # graba bloques de audio y se detiene si hay silencio
-                audio_data = self.recognizer.listen(source, timeout=1, phrase_time_limit=10)
-                return audio_data
-            except sr.WaitTimeoutError:
-                return None
-            except Exception:
-                return None
-
-    def _audio_loop(self):
-            """Dedicated background loop for microphone processing"""
-            print(f"{INDENT_OUTPUT}[{self.name}] Audio listener thread started.")
-            while self.running:
-                self.data_stream['audio'] = self.capture_audio()
-                sleep(0.05)
 
     def loop(self):
         pass
@@ -54,41 +30,38 @@ class SensoryModule(BaseModule):
     def handle_task(self, task):
         if task.type == "shutdown":
             self.running = False
-        elif task.type == "TAKE_INVENTORY_PHOTO":
+            
+        elif task.type == "TAKE_INVENTORY_PHOTO" or task.type == "TAKE_PHOTO":
             if not self.is_scanning:
                 self.is_scanning = True
                 print(f"{INDENT_OUTPUT}[{self.name}] Inventory photo requested. Triggering camera thread...")
-                # Lanzamos la cámara en un HILO APARTE para no bloquear la escucha del micrófono
+                # Lanzamos la cámara en un HILO APARTE para no bloquear el sistema
                 threading.Thread(target=self._procesar_escaneo, daemon=True).start()
 
     def _procesar_escaneo(self):
-        # 1. Obtenemos coordenadas actuales del robot
-        robot_x, robot_y = 0.0, 0.0
-        odom = self.shared_data.get("odom", None)
-        if odom:
-            robot_x = odom.pose.pose.position.x
-            robot_y = odom.pose.pose.position.y
-
-        # 2. Capturamos la foto
+        # 1. Capturamos la foto con la Webcam del ordenador
         cap = cv2.VideoCapture(0)
         time.sleep(1) # Dejamos que la cámara enfoque 1 segundito
         ret, frame = cap.read()
         cap.release()
 
         if not ret:
-            print(f"{INDENT_OUTPUT}[{self.name}] Error: Could not access the camera hardware.")
+            print(f"{INDENT_OUTPUT}[{self.name}] Error: Could not access the webcam hardware.")
             self._finalizar_escaneo()
             return
 
-        # Convertimos a Base64
+        # Guardamos el último frame en la memoria compartida por si el HRI lo necesita
+        # Lo convertimos a Base64 para el VLM
         _, buffer = cv2.imencode('.jpg', frame)
         b64_image = base64.b64encode(buffer).decode('utf-8')
+        
+        self.data_stream["last_frame"] = buffer.tobytes()
 
-        # 3. Enviamos a la Nube
+        # 2. Enviamos a la Nube (Sin datos de odometría/hardware)
         payload = {
             "imagen_base64": b64_image,
-            "robot_x": robot_x,
-            "robot_y": robot_y
+            "robot_x": 0.0, # Dummy data porque ya no hay robot físico
+            "robot_y": 0.0
         }
 
         print(f"{INDENT_OUTPUT}[{self.name}] Sending frame to Qwen Cloud API...")
@@ -99,35 +72,27 @@ class SensoryModule(BaseModule):
             
             if "imagen_anotada" in datos and datos["imagen_anotada"]:
                 print(f"{INDENT_OUTPUT}[{self.name}] Scan successful. Items detected: {len(datos.get('detectado', []))}")
+                
+                # Actualizamos la pantalla con la imagen que devuelve la IA (Bounding Boxes)
                 self.publish_event(Event(
                     origin=self.name, 
                     type="UPDATE_DISPLAY_IMAGE", 
-                    data={"image_b64": datos["imagen_anotada"], "title": "ESCANEANDO ESTANTERÍA..."}
+                    data={"image_b64": datos["imagen_anotada"], "title": "ESTANTERÍA ESCANEADA"}
                 ))
         except Exception as e:
             print(f"{INDENT_OUTPUT}[{self.name}] Cloud communication error: {e}")
 
-        # 4. Avisamos al navegador de que ya hemos acabado
+        # 3. Avisamos de que ya hemos acabado
         self._finalizar_escaneo()
 
     def _finalizar_escaneo(self):
-        print(f"{INDENT_OUTPUT}[{self.name}] Visual workflow finished. Releasing motion locks.")
+        print(f"{INDENT_OUTPUT}[{self.name}] Visual workflow finished.")
+        # Generamos el evento por si alguna otra parte de la lógica lo está esperando
         self.publish_event(Event(origin=self.name, type="PHOTO_DONE"))
         self.is_scanning = False
 
     def run(self):
-        self.data_stream['audio'] = None
-        self.data_stream['distance'] = 5
-
-        # calibramos un segundo completo para evitar falsos positivos de ruido
-        print(f"{INDENT_OUTPUT}[{self.name}] Calibrating ambient noise...")
-        with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=1)
-
-        self.publish_event(Event(type="distance_data", data=42, origin=self.name))
-        self.publish_event(Event(type="critical_obstacle", data=self.data_stream['distance'], origin=self.name))
-
-        threading.Thread(target=self._audio_loop, daemon=True).start()
+        print(f"{INDENT_OUTPUT}[{self.name}] Started Vision Module.")
 
         while self.running:
             try:

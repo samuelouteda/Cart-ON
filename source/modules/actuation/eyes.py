@@ -1,30 +1,17 @@
 import threading
 import time
-from luma.core.interface.serial import spi
-from luma.core.render import canvas
-from luma.oled.device import sh1106
+import cv2
+import numpy as np
 
 class RobotEyes:
     def __init__(self, name):
         self.name = name
-        self.device = self._inicialitzar_ulls()
         self.emocion_actual = "neutral"
         self.running = True
         self.lock = threading.Lock()
         
-        # Arrancamos un hilo independiente solo para mantener las pantallas vivas
-        if self.device:
-            threading.Thread(target=self._bucle_refresco, daemon=True).start()
-
-    def _inicialitzar_ulls(self):
-        try:
-            serial = spi(port=0, device=0, gpio_DC=20, gpio_RST=16, bcm_CS=21)
-            dispositiu = sh1106(serial, width=128, height=64)
-            print(f"[{self.name}] Pantalles OLED SH1106 inicialitzades per SPI!")
-            return dispositiu
-        except Exception as e:
-            print(f"[{self.name}] Error de configuració de pins SPI: {e}")
-            return None
+        print(f"[{self.name}] Simulador de pantallas OLED inicializado en OpenCV.")
+        threading.Thread(target=self._bucle_refresco, daemon=True).start()
 
     def set_emocion(self, nueva_emocion):
         """Actualiza la emoción que deben mostrar los ojos."""
@@ -33,41 +20,43 @@ class RobotEyes:
             print(f"[{self.name}] Cambiando expresión a: {self.emocion_actual}")
 
     def _bucle_refresco(self):
-        """Hilo en segundo plano que dibuja el ojo según la emoción actual."""
+        """Hilo en segundo plano que dibuja los ojos con OpenCV simulando las pantallas OLED."""
         while self.running:
             with self.lock:
                 emocion = self.emocion_actual
                 
-            if self.device:
-                with canvas(self.device) as draw:
-                    # Fondo negro
-                    draw.rectangle(self.device.bounding_box, outline="black", fill="black")
-                    
-                    if emocion == "feliz":
-                        # Ojo feliz (forma de arco o U invertida)
-                        draw.arc((24, 20, 104, 60), start=180, end=0, fill="white", width=8)
-                        
-                    elif emocion == "triste":
-                        # Ojo triste (párpado superior caído)
-                        draw.ellipse((24, 15, 104, 62), fill="white")
-                        draw.rectangle((24, 0, 104, 30), fill="black") # Corta la mitad superior
-                        draw.ellipse((52, 35, 76, 59), fill="black") # Pupila mirando abajo
-                        
-                    elif emocion == "duda":
-                        # Ojo mirando hacia un lado
-                        draw.ellipse((24, 2, 104, 62), fill="white")
-                        draw.ellipse((70, 22, 94, 46), fill="black") # Pupila a la derecha
-                        
-                    else:
-                        # Neutral (mirada al frente)
-                        draw.ellipse((24, 2, 104, 62), fill="white")
-                        draw.ellipse((52, 22, 76, 46), fill="black")
+            # Lienzo negro simulando la pantalla OLED de 128x64 ampliada para verla bien
+            img = np.zeros((150, 250, 3), dtype=np.uint8)
+            
+            # Centro del ojo
+            center_x, center_y = 125, 75
 
-            # Refresca a 10 FPS (suficiente para OLEDs estáticas)
-            time.sleep(0.1)
+            if emocion == "feliz":
+                # Arco hacia arriba simulando ojo feliz cerrado
+                cv2.ellipse(img, (center_x, center_y+20), (60, 40), 0, 180, 360, (255, 255, 255), 10)
+                
+            elif emocion == "triste":
+                # Óvalo blanco (ojo)
+                cv2.ellipse(img, (center_x, center_y), (50, 60), 0, 0, 360, (255, 255, 255), -1)
+                # Párpado caído cortando por arriba
+                cv2.rectangle(img, (0, 0), (250, center_y-10), (0, 0, 0), -1)
+                # Pupila mirando abajo
+                cv2.circle(img, (center_x, center_y+30), 15, (0, 0, 0), -1)
+                
+            elif emocion == "duda":
+                # Óvalo blanco
+                cv2.ellipse(img, (center_x, center_y), (50, 60), 0, 0, 360, (255, 255, 255), -1)
+                # Pupila desviada a la derecha
+                cv2.circle(img, (center_x+25, center_y), 15, (0, 0, 0), -1)
+                
+            else:
+                # Neutral: Mirando al frente
+                cv2.ellipse(img, (center_x, center_y), (50, 60), 0, 0, 360, (255, 255, 255), -1)
+                cv2.circle(img, (center_x, center_y), 15, (0, 0, 0), -1)
+
+            cv2.imshow("Ojos OLED (Simulador)", img)
+            cv2.waitKey(100) # Refresco a 10 FPS
 
     def stop(self):
-        """Apaga las pantallas al cerrar el programa."""
         self.running = False
-        if self.device:
-            self.device.clear()
+        cv2.destroyAllWindows()

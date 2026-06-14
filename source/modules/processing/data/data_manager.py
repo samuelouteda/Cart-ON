@@ -12,10 +12,7 @@ class DataModule(BaseModule):
     _shopping_file = "shopping_list.json"
 
     def __init__(self, name, event_bus, data_task_bus, shared_data):
-
         super().__init__(name, event_bus, data_task_bus)
-
-        
         self.shared_data = shared_data
         self.load_data()
 
@@ -25,7 +22,6 @@ class DataModule(BaseModule):
         
     def load_data(self):
         self.shared_data['shopping_list'] = self.load_list()
-        
 
     def load_list(self):
         if os.path.exists(self._shopping_file):
@@ -43,7 +39,6 @@ class DataModule(BaseModule):
         print(f"{INDENT_OUTPUT}[{self.name}] Shopping list succesfully saved at {self.shopping_file_path}.")
 
     def handle_task(self, task):
-
         if task.type == "add_item":
             item = task.data["item"]
             quantity = task.data["quantity"]
