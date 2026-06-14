@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-multipart
+mysql-connector-python
+openai
+google-genai
+python-dotenv
+gTTS
+opencv-python-headless
