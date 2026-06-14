@@ -124,8 +124,6 @@ class SensoryModule(BaseModule):
             # with self.microphone as source:
             #     self.recognizer.adjust_for_ambient_noise(source, duration=1)
 
-            self.publish_event(Event(type="distance_data", data=42, origin=self.name))
-            self.publish_event(Event(type="critical_obstacle", data=self.data_stream['distance'], origin=self.name))
 
             # COMENTAMOS EL HILO DE AUDIO PARA QUE NO SECUESTRE EL HARDWARE
             # threading.Thread(target=self._audio_loop, daemon=True).start()

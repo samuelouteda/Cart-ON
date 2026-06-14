@@ -3,10 +3,8 @@ from core.event import Event
 from core.constants import INDENT_OUTPUT
 from modules.processing.navigation.path_planner import PathPlanner
 from modules.processing.navigation.frontier_explorer import FrontierExplorer
-from modules.actuation.motion_controller import MotionController
-
-# IMPORTAMOS EL TRADUCTOR DE COORDENADAS
 from modules.processing.navigation.coordinate_transformer import CoordinateTransformer
+from modules.actuation.motion_controller import MotionController
 
 import threading
 import time
@@ -20,6 +18,9 @@ class Navigation(BaseModule):
         self.data_task_bus = data_task_bus
         self.shared_data = shared_data
 
+        # --- MODO DEMO ---
+        self.modo_manual_demo = True
+        
         self.nav_state = "idle"
         self._nav_lock = threading.Lock()
         self.target_item = None
@@ -55,60 +56,73 @@ class Navigation(BaseModule):
     def handle_task(self, task):
         # Ordenes HRI/Planner para iniciar rutas, exploración o escaneo
         if task.type == "START_DRIVING":
+            
             if self.exploring:
                 print(f"{INDENT_OUTPUT}[{self.name}] Deactivating exploration phase to start commercial route.")
                 self.exploring = False
                 if self.motion_controller:
                     self.motion_controller.stop()
                 time.sleep(0.5)
+
+            # --- INTERCEPTOR DE LA DEMO MANUAL ---
+            if self.modo_manual_demo:
+                if self.nav_state != "manual_demo":
+                    print(f"{INDENT_OUTPUT}[{self.name}] Modo Demo Activado: Iniciando secuencia de conducción...")
+                    with self._nav_lock:
+                        self.nav_state = "manual_demo"
+                    threading.Thread(target=self._execute_demo_sequence, daemon=True).start()
+                else:
+                    print(f"{INDENT_OUTPUT}[{self.name}] La demo ya está en ejecución.")
             
-            datos_destino = task.data
-            aula = datos_destino.get("aula")
-            lat_gps = datos_destino.get("lat")
-            lng_gps = datos_destino.get("lng")
-            ruta_supermercado = datos_destino.get("ruta_supermercado", [])
-
-            self._update_pose_from_odom()
-            if self.motion_controller:
-                self.home_x = self.motion_controller.current_x
-                self.home_y = self.motion_controller.current_y
-
-            self.destinations_queue = [] # Limpiamos viajes anteriores
-            self.returning_home = False
-
-            if "item_locations" not in self.shared_data:
-                self.shared_data["item_locations"] = {}
-
-            # OPCIÓN A: MODO UNIVERSITARIO (Un solo destino)
-            if aula and lat_gps and lng_gps:
-                local_x, local_y = self.gps_transformer.gps_to_local(lat_gps, lng_gps)
-                self.destinations_queue.append((aula, local_x, local_y))
-                
-            # OPCIÓN B: MODO SUPERMERCADO (Múltiples destinos)
-            elif ruta_supermercado:
-                print(f"{INDENT_OUTPUT}[{self.name}] Calculando ruta óptima para {len(ruta_supermercado)} productos...")
-                curr_x, curr_y = self.home_x, self.home_y
-                pendientes = ruta_supermercado.copy()
-                
-                # Algoritmo Nearest Neighbor
-                while pendientes:
-                    mas_cercano = min(pendientes, key=lambda p: math.hypot(p['x'] - curr_x, p['y'] - curr_y))
-                    self.destinations_queue.append((mas_cercano['producto'], mas_cercano['x'], mas_cercano['y']))
-                    curr_x, curr_y = mas_cercano['x'], mas_cercano['y']
-                    pendientes.remove(mas_cercano)
-
-            # ARRANCAMOS LA PRIMERA PARADA
-            if self.destinations_queue:
-                siguiente_parada, sx, sy = self.destinations_queue.pop(0)
-                self.target_item = siguiente_parada
-                self.shared_data["item_locations"][siguiente_parada] = (sx, sy)
-                
-                with self._nav_lock:
-                    self.nav_state = "calculating"
-                self.nav_start_time = time.time()
-                print(f"{INDENT_OUTPUT}[{self.name}] Próxima parada: \"{self.target_item}\" (X={sx:.2f}, Y={sy:.2f})")
+            # --- RUTAS AUTÓNOMAS ORIGINALES ---
             else:
-                print(f"{INDENT_OUTPUT}[{self.name}] START_DRIVING sin destinos válidos encontrados en la BD.")
+                datos_destino = task.data
+                aula = datos_destino.get("aula")
+                lat_gps = datos_destino.get("lat")
+                lng_gps = datos_destino.get("lng")
+                ruta_supermercado = datos_destino.get("ruta_supermercado", [])
+
+                self._update_pose_from_odom()
+                if self.motion_controller:
+                    self.home_x = self.motion_controller.current_x
+                    self.home_y = self.motion_controller.current_y
+
+                self.destinations_queue = [] # Limpiamos viajes anteriores
+                self.returning_home = False
+
+                if "item_locations" not in self.shared_data:
+                    self.shared_data["item_locations"] = {}
+
+                # OPCIÓN A: MODO UNIVERSITARIO (Un solo destino)
+                if aula and lat_gps and lng_gps:
+                    local_x, local_y = self.gps_transformer.gps_to_local(lat_gps, lng_gps)
+                    self.destinations_queue.append((aula, local_x, local_y))
+                    
+                # OPCIÓN B: MODO SUPERMERCADO (Múltiples destinos)
+                elif ruta_supermercado:
+                    print(f"{INDENT_OUTPUT}[{self.name}] Calculando ruta óptima para {len(ruta_supermercado)} productos...")
+                    curr_x, curr_y = self.home_x, self.home_y
+                    pendientes = ruta_supermercado.copy()
+                    
+                    # Algoritmo Nearest Neighbor
+                    while pendientes:
+                        mas_cercano = min(pendientes, key=lambda p: math.hypot(p['x'] - curr_x, p['y'] - curr_y))
+                        self.destinations_queue.append((mas_cercano['producto'], mas_cercano['x'], mas_cercano['y']))
+                        curr_x, curr_y = mas_cercano['x'], mas_cercano['y']
+                        pendientes.remove(mas_cercano)
+
+                # ARRANCAMOS LA PRIMERA PARADA
+                if self.destinations_queue:
+                    siguiente_parada, sx, sy = self.destinations_queue.pop(0)
+                    self.target_item = siguiente_parada
+                    self.shared_data["item_locations"][siguiente_parada] = (sx, sy)
+                    
+                    with self._nav_lock:
+                        self.nav_state = "calculating"
+                    self.nav_start_time = time.time()
+                    print(f"{INDENT_OUTPUT}[{self.name}] Próxima parada: \"{self.target_item}\" (X={sx:.2f}, Y={sy:.2f})")
+                else:
+                    print(f"{INDENT_OUTPUT}[{self.name}] START_DRIVING sin destinos válidos encontrados en la BD.")
 
         elif task.type == "START_MAPPING":
             print(f"{INDENT_OUTPUT}[{self.name}] IA autoritza mapeig. Iniciant explorador de fronteres...")
@@ -116,8 +130,8 @@ class Navigation(BaseModule):
             self.frontier_explorer.reset()
             self._exploration_step()
             
-        elif task.type == "EMERGENCY_STOP":
-            print(f"{INDENT_OUTPUT}[{self.name}] ¡FRENADA D'EMERGÈNCIA! Ordre del HRI.")
+        elif task.type in ["EMERGENCY_STOP", "STOP_MOTORS"]:
+            print(f"{INDENT_OUTPUT}[{self.name}] ¡FRENADA D'EMERGÈNCIA! Ordre del HRI o Seguretat.")
             if self.motion_controller:
                 self.motion_controller.stop()
             with self._nav_lock:
@@ -140,11 +154,6 @@ class Navigation(BaseModule):
             self.nav_start_time = time.time()
             self.returning_home = False
             print(f"{INDENT_OUTPUT}[{self.name}] Calculant ruta a \"{self.target_item}\"...")
-
-        elif task.type == "start_exploration":
-            self.exploring = True
-            self.frontier_explorer.reset()
-            self._exploration_step()
 
         elif task.type == "stop_exploration":
             self.exploring = False
@@ -208,11 +217,11 @@ class Navigation(BaseModule):
                     for qualitat, angle, distancia in punts_laser:
                         if angle > 340 or angle < 20:
                             if 0 < distancia < 400:
-                                print(f"{INDENT_OUTPUT}[{self.name}] ¡CRÍTICH! Obstacle a {distancia} mm")
+                                print(f"{INDENT_OUTPUT}[{self.name}] ¡CRÍTIC! Obstacle a {distancia} mm")
                                 self.publish_event(Event(type="critical_obstacle", origin=self.name))
                                 if self.motion_controller:
                                     with self._nav_lock:
-                                        if self.nav_state == "navigating":
+                                        if self.nav_state in ["navigating", "manual_demo"]:
                                             self.motion_controller.stop()
                                             self.nav_state = "idle"
                                 break
@@ -226,11 +235,11 @@ class Navigation(BaseModule):
                                 distancia_metres = ranges[i]
                                 if 0.05 < distancia_metres < 0.20:
                                     distancia_mm = distancia_metres * 1000
-                                    print(f"{INDENT_OUTPUT}[{self.name}] ¡CRÍTICH! Obstacle a {distancia_mm:.0f} mm")
+                                    print(f"{INDENT_OUTPUT}[{self.name}] ¡CRÍTIC! Obstacle a {distancia_mm:.0f} mm")
                                     self.publish_event(Event(type="critical_obstacle", origin=self.name))
                                     if self.motion_controller:
                                         with self._nav_lock:
-                                            if self.nav_state == "navigating":
+                                            if self.nav_state in ["navigating", "manual_demo"]:
                                                 self.motion_controller.stop()
                                                 self.nav_state = "idle"
                                     break
@@ -287,20 +296,20 @@ class Navigation(BaseModule):
         time.sleep(1) # Dejar que la inercia pare
         
         # 2. Girar 90º a la Derecha para encarar la estantería (-Pi/2 radianes)
-        print(f"{INDENT_OUTPUT}[{self.name}] ↪️ Girando hacia la estantería (con odometría)...")
+        print(f"{INDENT_OUTPUT}[{self.name}] Girando hacia la estantería (con odometría)...")
         if self.motion_controller:
             self.motion_controller.turn_relative(-math.pi / 2) # -90 grados
         
         time.sleep(0.5) # Pausa mínima para estabilizar la cámara
         
         # 3. Disparar evento PARA EL PLANNER
-        print(f"{INDENT_OUTPUT}[{self.name}] 📸 Avisando al Planner de que la estantería está lista...")
+        print(f"{INDENT_OUTPUT}[{self.name}] Avisando al Planner de que la estantería está lista...")
         self.publish_event(Event(origin=self.name, type="SHELF_DETECTED"))
         # Nos quedamos en modo is_scanning_shelf = True hasta que vision.py grite "PHOTO_DONE"
 
     def _resume_after_scan(self):
         # 4. Deshacer el giro (+90º) para volver a mirar al frente
-        print(f"{INDENT_OUTPUT}[{self.name}] ↩️ Recuperando orientación original (con odometría)...")
+        print(f"{INDENT_OUTPUT}[{self.name}] Recuperando orientación original (con odometría)...")
         if self.motion_controller:
             self.motion_controller.turn_relative(math.pi / 2) # +90 grados
 
@@ -408,3 +417,64 @@ class Navigation(BaseModule):
                 time.sleep(0.5)
 
         threading.Thread(target=_step, daemon=True).start()
+
+    # =================================================================
+    # FUNCIONES EXCLUSIVAS DE LA DEMO HARDCODEADA
+    # =================================================================
+    
+    def _smart_sleep(self, duration):
+        """Espera el tiempo indicado, pero se interrumpe si hay parada de emergencia."""
+        end_time = time.time() + duration
+        while time.time() < end_time:
+            # Cancelamos el sueño si dejamos de estar en modo demo o se nos pidió parar
+            if self.nav_state != "manual_demo" or (self.motion_controller and self.motion_controller.stop_requested):
+                return False
+            time.sleep(0.1)
+        return True
+
+    def _execute_demo_sequence(self):
+        try:
+            if self.motion_controller:
+                self.motion_controller.stop_requested = False
+            
+            print(f"{INDENT_OUTPUT}[{self.name}] DEMO - Fase 1: Avanzando 5 segundos")
+            if self.motion_controller and self.motion_controller.fw:
+                self.motion_controller.fw.avanza(250)
+            if not self._smart_sleep(5.0): return
+            
+            if self.motion_controller and self.motion_controller.fw:
+                self.motion_controller.fw.stop()
+            self._smart_sleep(0.5) # Pausa de estabilización mecánica
+
+            print(f"{INDENT_OUTPUT}[{self.name}] DEMO - Fase 2: Girando 180º a la derecha")
+            if self.motion_controller and not self.motion_controller.turn_relative(-math.pi): return
+            self._smart_sleep(0.5)
+
+            print(f"{INDENT_OUTPUT}[{self.name}] DEMO - Fase 3: Avanzando 5 segundos")
+            if self.motion_controller and self.motion_controller.fw:
+                self.motion_controller.fw.avanza(250)
+            if not self._smart_sleep(5.0): return
+            
+            if self.motion_controller and self.motion_controller.fw:
+                self.motion_controller.fw.stop()
+            self._smart_sleep(0.5)
+
+            print(f"{INDENT_OUTPUT}[{self.name}] DEMO - Fase 4: Girando 180º a la izquierda")
+            if self.motion_controller and not self.motion_controller.turn_relative(math.pi): return
+            
+            print(f"{INDENT_OUTPUT}[{self.name}] DEMO - Secuencia completada con éxito.")
+
+        except Exception as e:
+            print(f"{INDENT_OUTPUT}[{self.name}] Error durante la demo: {e}")
+            
+        finally:
+            if self.motion_controller and self.motion_controller.fw:
+                self.motion_controller.fw.stop()
+                
+            with self._nav_lock:
+                # Solo pasamos a idle si seguimos en manual_demo (no si fue un EMERGENCY_STOP)
+                if self.nav_state == "manual_demo":
+                    self.nav_state = "idle"
+                    
+            # Avisamos al cerebro para desencadenar el resto de acciones del FSM
+            self.publish_event(Event(type="PHYSICAL_ACTION_DONE", origin=self.name))

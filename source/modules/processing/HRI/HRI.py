@@ -36,7 +36,7 @@ class HRI(BaseModule):
         self.shared_data = shared_data
         
         # URL actualizada a tu backend Dual Oficial
-        self.cloud_url = "https://cart-on-api-sm-225606614592.europe-west1.run.app/api/v1/interaccion"
+        self.cloud_url = "https://cart-on-api-225606614592.europe-west1.run.app/api/v1/interaccion"
 
         self.speaker = Speaker("Speaker", event_bus, shared_data)
         self.display = Display("Display", event_bus, shared_data)
@@ -123,7 +123,7 @@ class HRI(BaseModule):
                 robot_text=texto,
                 image=imagen_mapa,
                 data_dict=self.lista_compra_local,
-                footer=texto_footer  # Pasamos el footer
+                footer=texto_footer  # Pasamos el footer (recuerda que tu display.py de la Raspi debe aceptarlo)
             )
             
             print(f"\n{INDENT_OUTPUT}[{self.name}] [Cart-ON Dice]: {texto}\n")
@@ -311,6 +311,7 @@ class HRI(BaseModule):
                     self.publish_event(Event(origin=self.name, type="SHUTDOWN"))
                     break
                 elif texto.strip():
+                    # Interceptor estado físico
                     if self.estado_fisico == "CONDUCCION":
                         if "para" in texto.lower() or "detente" in texto.lower():
                             print(f"{INDENT_OUTPUT}[{self.name}] Orden de parada normal enviada al navegador.")

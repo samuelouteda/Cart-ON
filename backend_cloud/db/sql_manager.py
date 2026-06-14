@@ -6,7 +6,7 @@ load_dotenv()
 
 class SQLManager:
     def __init__(self):
-        print("[SQLManager] Gestor de Base de Datos inicializado y fusionado.")
+        print("[SQLManager] Gestor de Base de Datos Universal Dual Inicializado.")
 
     def get_connection(self):
         """Crea y devuelve una nueva conexión limpia a la base de datos."""
@@ -36,7 +36,6 @@ class SQLManager:
 
         try:
             cursor = conn.cursor(dictionary=True)
-            # Buscamos coincidencias tanto en el nombre interno como en el de pantalla
             query = """
                 SELECT nombre_pantalla, precio, stock_actual 
                 FROM productos 
@@ -44,7 +43,6 @@ class SQLManager:
             """
             cursor.execute(query, (f"%{termino}%", f"%{termino}%"))
             resultado = cursor.fetchone()
-            
             return resultado
         except Exception as e:
             print(f"Error buscando el producto en SQL: {e}")
@@ -55,19 +53,22 @@ class SQLManager:
                 conn.close()
 
     # ==========================================
-    # MODO ESCUELA: UBICACIÓN DIRECTA
+    # MODO ESCUELA: UBICACIÓN DIRECTA (ESTRICTA DE SM)
     # ==========================================
     def get_classroom_location(self, nombre_aula: str):
-        """Devuelve las coordenadas exactas de un aula."""
+        """Devuelve las coordenadas exactas de un aula evitando subcoincidencias locas."""
         conn = self.get_connection()
         if not conn: return None
+        
+        # Convierte espacios de voz en "%" para encajar "Q4 1005" con "Q4/1005" en MySQL.
+        # Quitamos los comodines exteriores para que "Q4" no se líe con "Q4/1005".
+        aula_limpia = nombre_aula.strip().replace(" ", "%")
         
         try:
             cursor = conn.cursor(dictionary=True) 
             query = "SELECT latitud, longitud FROM aulas_uab WHERE nombre_aula LIKE %s"
-            cursor.execute(query, (f"%{nombre_aula}%",))
+            cursor.execute(query, (aula_limpia,))
             resultado = cursor.fetchone()
-            
             return resultado
         except Exception as e:
             print(f"Error buscando el aula en SQL: {e}")
@@ -78,17 +79,15 @@ class SQLManager:
                 conn.close()
     
     # ==========================================
-    # MODO ESCUELA: HORARIO + COORDENADAS
+    # MODO ESCUELA: HORARIO + COORDENADAS (ALGORITMO RAÍZ MULTILINGÜE)
     # ==========================================
     def get_school_info(self, asignatura: str = None, grupo: str = None, hora: str = None):
-        """Busca la clase y hace JOIN para llevarse también la ubicación del aula."""
+        """Busca la clase y hace JOIN cruzando la raíz de la asignatura (ES/CAT)."""
         conn = self.get_connection()
         if not conn: return []
         
         try:
             cursor = conn.cursor(dictionary=True)
-            
-            # JOIN entre horarios y aulas
             query = """
                 SELECT h.*, a.latitud, a.longitud 
                 FROM horarios_uab h
@@ -97,14 +96,18 @@ class SQLManager:
             """
             params = []
             
-            # Lógica de limpieza de palabras clave
+            # Algoritmo de filtrado de SM por la palabra más larga y truncado de sufijos a 6 caracteres
             if asignatura and asignatura != "producto desconocido":
-                palabras = asignatura.lower().split()
-                palabras_clave = [p for p in palabras if p not in ["de", "por", "para", "la", "el", "los", "las"]]
+                asignatura_limpia = asignatura.lower().replace('á','a').replace('é','e').replace('í','i').replace('ó','o').replace('ú','u')
+                asignatura_limpia = asignatura_limpia.replace('à','a').replace('è','e').replace('ò','o')
+                
+                palabras = asignatura_limpia.split()
+                palabras_clave = [p for p in palabras if len(p) > 3 and p not in ["para", "como", "pero", "clase", "aula"]]
                 
                 if palabras_clave:
-                    raiz = palabras_clave[0]
-                    raiz = raiz.replace('ó', 'o').replace('í', 'i')
+                    palabra_principal = max(palabras_clave, key=len)
+                    raiz = palabra_principal[:6]  # Asegura 'multim', 'comput', 'arquac', 'infaes'
+                    
                     query += " AND LOWER(h.asignatura) LIKE %s"
                     params.append(f"%{raiz}%")
                 
@@ -118,10 +121,9 @@ class SQLManager:
                 
             cursor.execute(query, tuple(params))
             resultados = cursor.fetchall()
-            
             return resultados
         except Exception as e:
-            print(f"[SQLManager] Error consultando UAB: {e}")
+            print(f"[SQLManager] Error consultando asignaturas UAB: {e}")
             return []
         finally:
             if conn.is_connected():
