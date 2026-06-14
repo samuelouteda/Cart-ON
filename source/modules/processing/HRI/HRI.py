@@ -8,6 +8,8 @@ import json
 import unicodedata
 import vosk
 import pyaudio
+import audioop
+import io  # IMPORTANTE: Añadido para manejar el audio amplificado en memoria
 
 from core.base_module import BaseModule
 from core.event import Event
@@ -32,7 +34,9 @@ class HRI(BaseModule):
         self.api_key = api_key
         self.data_task_bus = data_task_bus
         self.shared_data = shared_data
-        self.cloud_url = "https://cart-on-api-225606614592.europe-west1.run.app/api/v1/interaccion"
+        
+        # URL actualizada a tu backend Dual Oficial
+        self.cloud_url = "https://cart-on-api-sm-225606614592.europe-west1.run.app/api/v1/interaccion"
 
         self.speaker = Speaker("Speaker", event_bus, shared_data)
         self.display = Display("Display", event_bus, shared_data)
@@ -41,7 +45,6 @@ class HRI(BaseModule):
         # Mochila local
         self.lista_compra_local = shared_data.get('shopping_list', {}).copy()
 
-        # Ña maquina de 
         self.estado_fisico = "HABLA"  # Puede ser: "HABLA", "MAPEO" o "CONDUCCION"
 
         vosk.SetLogLevel(-1)
@@ -87,10 +90,13 @@ class HRI(BaseModule):
             
         elif task.type == "SPEAK":
             datos_nube = task.data
-            ####====================
             emocion_recibida = datos_nube.get("emocion", "neutro")
             texto = datos_nube.get("texto", "Error en la respuesta")
             audio_b64 = datos_nube.get("audio_b64", None)
+            
+            # INYECCIÓN SM: Extraemos el modo de la nube
+            modo_actual = datos_nube.get("modo", "desconocido").upper()
+            texto_footer = f"Cart-ON (Físico) | MODO: {modo_actual}"
             
             # Extraemos la acción física que nos indica el Planner
             accion_fisica = datos_nube.get("accion_fisica", "NINGUNA")
@@ -116,28 +122,21 @@ class HRI(BaseModule):
                 title=f"Ruta a {aula_recibida}" if aula_recibida else "Respuesta Asistente",
                 robot_text=texto,
                 image=imagen_mapa,
-                data_dict=self.lista_compra_local
+                data_dict=self.lista_compra_local,
+                footer=texto_footer  # Pasamos el footer
             )
             
             print(f"\n{INDENT_OUTPUT}[{self.name}] [Cart-ON Dice]: {texto}\n")
             
-            if audio_b64:
-                try:
-                    audio_bytes = base64.b64decode(audio_b64)
-                    self.speaker.play_audio(audio_bytes)
-                except Exception as e:
-                    print(f"{INDENT_OUTPUT}[{self.name}] Error al delegar audio al Speaker: {e}")
-
-            # Ejecución estado físico según la acción recibida del Planner
+            # Ejecución de estado físico (Se mantiene fuera del hilo para ejecutar de inmediato)
             if accion_fisica == "INICIAR_MAPEO":
                 self.estado_fisico = "MAPEO"
-                print(f"{INDENT_OUTPUT} 🧭 FSM: Cambiando estado a MAPEO. Despertando LIDAR...")
-                # Publicamos el evento para que arranque tu futuro código de ROS/SLAM
+                print(f"{INDENT_OUTPUT}[{self.name}] FSM: Cambiando estado a MAPEO. Despertando LIDAR...")
                 self.publish_event(Event(origin=self.name, type="START_MAPPING"))
                 
             elif accion_fisica == "INICIAR_CONDUCCION":
                 self.estado_fisico = "CONDUCCION"
-                print(f"{INDENT_OUTPUT} Cambiando estado a CONDUCCIÓN")
+                print(f"{INDENT_OUTPUT}[{self.name}] Cambiando estado a CONDUCCIÓN")
                 datos_navegacion = {
                     "aula": aula_recibida,
                     "lat": lat_recibida,
@@ -146,13 +145,47 @@ class HRI(BaseModule):
                 }
                 self.publish_event(Event(origin=self.name, type="START_DRIVING", data=datos_navegacion))
 
-            # Volvemos a abrir el semáforo para escuchar
-            self.puedo_escuchar.set()
+            # =======================================================
+            # HILO SECUNDARIO DE AUDIO (Para no congelar la LilyGo)
+            # =======================================================
+            def _reproducir_y_liberar():
+                if audio_b64:
+                    try:
+                        audio_bytes = base64.b64decode(audio_b64)
+                        
+                        # --- NUEVO: AMPLIFICACIÓN BRUTA DE AUDIO EN MEMORIA ---
+                        try:
+                            from pydub import AudioSegment
+                            # 1. Leemos los bytes puros como si fueran un archivo mp3 en memoria
+                            audio_segment = AudioSegment.from_file(io.BytesIO(audio_bytes), format="mp3")
+                            
+                            # 2. Le inyectamos +15 decibelios de ganancia
+                            audio_amplificado = audio_segment + 15
+                            
+                            # 3. Lo volvemos a exportar a bytes para que Speaker lo pueda leer
+                            buffer = io.BytesIO()
+                            audio_amplificado.export(buffer, format="mp3")
+                            audio_bytes = buffer.getvalue()
+                        except ImportError:
+                            print(f"{INDENT_OUTPUT}[{self.name}] Aviso: Faltan las librerías 'pydub' o 'ffmpeg'. Sonando al volumen normal.")
+                        except Exception as e:
+                            print(f"{INDENT_OUTPUT}[{self.name}] Aviso: No se pudo amplificar el volumen: {e}")
+                        # ------------------------------------------------------
+                        
+                        self.speaker.play_audio(audio_bytes)
+                    except Exception as e:
+                        print(f"{INDENT_OUTPUT}[{self.name}] Error al delegar audio al Speaker: {e}")
 
-        # Tarea que indica que la acción física ha terminado
+                time.sleep(0.5) # Pausa respiratoria anti-ecos
+                
+                # Volvemos a abrir el semáforo para escuchar
+                self.puedo_escuchar.set()
+
+            threading.Thread(target=_reproducir_y_liberar, daemon=True).start()
+
         elif task.type == "PHYSICAL_ACTION_DONE":
             self.estado_fisico = "HABLA"
-            print(f"\n{INDENT_OUTPUT} ✅ FSM: Acción física completada. Cart-ON vuelve al estado de HABLA.")
+            print(f"\n{INDENT_OUTPUT}[{self.name}] FSM: Acción física completada. Cart-ON vuelve al estado de HABLA.")
             self.display.update_data(status="SUCCESS", title="DESTINO ALCANZADO", robot_text="He llegado. ¿En qué más te ayudo?", image=None)
             self.puedo_escuchar.set()
 
@@ -193,15 +226,11 @@ class HRI(BaseModule):
             return
 
         modelo = vosk.Model(ruta_modelo)
-        recognizer_vosk = vosk.KaldiRecognizer(modelo, 16000)
+        recognizer_vosk = vosk.KaldiRecognizer(modelo, 48000)
         pa = pyaudio.PyAudio()
 
-        index_micro_usb = None
-        for i in range(pa.get_device_count()):
-            dev_info = pa.get_device_info_by_index(i)
-            if "USB ENC" in dev_info.get('name', '') or "hw:3,0" in dev_info.get('name', ''):
-                index_micro_usb = i
-                break
+        index_micro_usb = 1
+        print(f"{INDENT_OUTPUT}[{self.name}] Fijando el microfono al indice {index_micro_usb}...")
         
         necesita_despertar = True
 
@@ -211,10 +240,22 @@ class HRI(BaseModule):
             if necesita_despertar:
                 # Si está mapeando o conduciendo, no pide que le llamen Cartón
                 if self.estado_fisico == "HABLA":
-                    print(f"\n{INDENT_OUTPUT} Cart-ON en reposo. Di 'Cartón' para despertarlo...")
+                    print(f"\n{INDENT_OUTPUT}[{self.name}] Cart-ON en reposo. Di 'Cartón' para despertarlo...")
                 
-                stream = pa.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=4000)
-                stream.start_stream()
+                try:
+                    stream = pa.open(
+                        format=pyaudio.paInt16, 
+                        channels=2, 
+                        rate=48000, 
+                        input=True, 
+                        input_device_index=index_micro_usb,
+                        frames_per_buffer=8000
+                    )
+                    stream.start_stream()
+                except Exception as e:
+                    print(f"{INDENT_OUTPUT}[{self.name}] Error abriendo stream PyAudio: {e}")
+                    time.sleep(2)
+                    continue
                 
                 wake_word_detectada = False
                 while self.running and not wake_word_detectada:
@@ -222,23 +263,34 @@ class HRI(BaseModule):
                         time.sleep(0.1)
                         continue
 
-                    data = stream.read(4000, exception_on_overflow=False)
-                    if recognizer_vosk.AcceptWaveform(data):
-                        resultado = json.loads(recognizer_vosk.Result())
-                        texto_detectado = resultado.get("text", "").lower()
-                        
-                        # Parada emergencia por voz
-                        if "para" in texto_detectado or "emergencia" in texto_detectado or "stop" in texto_detectado:
-                            if self.estado_fisico in ["CONDUCCION", "MAPEO"]:
-                                print(f"\n{INDENT_OUTPUT} 🛑 ¡PARADA DE EMERGENCIA POR VOZ DETECTADA!")
-                                self.publish_event(Event(origin=self.name, type="EMERGENCY_STOP"))
-                                self.estado_fisico = "HABLA" # Forzamos el reinicio al habla
-                        
-                        if "cartón" in texto_detectado or "carton" in texto_detectado:
-                            wake_word_detectada = True
+                    try:
+                        data = stream.read(4000, exception_on_overflow=False)
+                        data_mono = audioop.tomono(data, 2, 1, 0)
 
-                stream.stop_stream()
-                stream.close()
+                        if recognizer_vosk.AcceptWaveform(data_mono):
+                            resultado = json.loads(recognizer_vosk.Result())
+                            texto_detectado = resultado.get("text", "").lower()
+                            
+                            if texto_detectado:
+                                print(f"{INDENT_OUTPUT} [Vosk escuchó]: '{texto_detectado}'")
+                            
+                            if "para" in texto_detectado or "emergencia" in texto_detectado or "stop" in texto_detectado:
+                                if self.estado_fisico in ["CONDUCCION", "MAPEO"]:
+                                    print(f"\n{INDENT_OUTPUT}[{self.name}] ¡PARADA DE EMERGENCIA POR VOZ DETECTADA!")
+                                    self.publish_event(Event(origin=self.name, type="EMERGENCY_STOP"))
+                                    self.estado_fisico = "HABLA" # Forzamos el reinicio al habla
+                            
+                            if "cartón" in texto_detectado or "carton" in texto_detectado:
+                                wake_word_detectada = True
+                    except Exception as e:
+                        print(f"{INDENT_OUTPUT}[{self.name}] Error leyendo buffer Vosk: {e}")
+                        break
+
+                try:
+                    stream.stop_stream()
+                    stream.close()
+                except:
+                    pass
                 necesita_despertar = False
 
             if not self.running: break
@@ -246,45 +298,45 @@ class HRI(BaseModule):
             try:
                 with sr.Microphone(device_index=index_micro_usb) as source:
                     recognizer_google.adjust_for_ambient_noise(source, duration=1)
-                    print(f"{INDENT_OUTPUT}[{self.name}] Te escucho... (Tienes 10s para hablar)")
-                    audio = recognizer_google.listen(source, timeout=10, phrase_time_limit=10)
+                    print(f"{INDENT_OUTPUT}[{self.name}] Te escucho... (Tienes 40s para hablar)")
+                    audio = recognizer_google.listen(source, timeout=40, phrase_time_limit=40)
 
                 self.puedo_escuchar.clear()
                 print(f"{INDENT_OUTPUT}[{self.name}] Traduciendo tu voz a texto...")
                 
                 texto = recognizer_google.recognize_google(audio, language="es-ES")
-                print(f"{INDENT_OUTPUT}[{self.name}] Has dicho: '{texto}'")
+                print(f"{INDENT_OUTPUT}[{self.name}] Has dicho: '{texto.lower()}'")
 
-                if texto == 'salir':
+                if texto.lower() == 'salir':
                     self.publish_event(Event(origin=self.name, type="SHUTDOWN"))
                     break
                 elif texto.strip():
-                    # Interceptor estado físico: Si está conduciendo o mapeando, no envía a la nube, solo para emergencias
                     if self.estado_fisico == "CONDUCCION":
-                        if "para" in texto or "detente" in texto:
-                            print(f"{INDENT_OUTPUT} 🛑 Orden de parada normal enviada al navegador.")
+                        if "para" in texto.lower() or "detente" in texto.lower():
+                            print(f"{INDENT_OUTPUT}[{self.name}] Orden de parada normal enviada al navegador.")
                             self.publish_event(Event(origin=self.name, type="EMERGENCY_STOP"))
                             self.estado_fisico = "HABLA"
                         else:
-                            print(f"{INDENT_OUTPUT} 🚗 Silenciado localmente: El robot está ocupado conduciendo.")
+                            print(f"{INDENT_OUTPUT}[{self.name}] Silenciado localmente: El robot está ocupado conduciendo.")
                             self.display.update_data(robot_text="Shhh, estoy concentrado conduciendo. Di 'PARA' si hay peligro.")
                         self.puedo_escuchar.set()
                         necesita_despertar = True
                         
                     elif self.estado_fisico == "MAPEO":
-                        print(f"{INDENT_OUTPUT} 🧭 Silenciado localmente: El robot está escaneando el entorno.")
+                        print(f"{INDENT_OUTPUT}[{self.name}] Silenciado localmente: El robot está escaneando el entorno.")
                         self.puedo_escuchar.set()
                         necesita_despertar = True
                         
                     else:
-                        # Flujo HABLA normal: Lo mandamos a la nube
                         self.publish_event(Event(origin=self.name, type="VOICE_DETECTED", data=texto))
+                        necesita_despertar = False  
                     
             except sr.WaitTimeoutError:
-                print(f"{INDENT_OUTPUT}[{self.name}] 10 segundos de inactividad. Vuelvo a dormir zZz...")
+                print(f"{INDENT_OUTPUT}[{self.name}] 40 segundos de inactividad. Vuelvo a dormir zZz...")
                 necesita_despertar = True
             except sr.UnknownValueError:
                 print(f"{INDENT_OUTPUT}[{self.name}] No te he entendido bien. Inténtalo de nuevo...")
+                necesita_despertar = False 
                 self.puedo_escuchar.set() 
             except Exception as e:
                 if self.running:
@@ -303,6 +355,3 @@ class HRI(BaseModule):
         if ahora - self.ultimo_refresco >= 0.05: 
             self.display.refresh()
             self.ultimo_refresco = ahora
-
-
-            

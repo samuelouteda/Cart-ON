@@ -116,25 +116,26 @@ class SensoryModule(BaseModule):
         self.is_scanning = False
 
     def run(self):
-        self.data_stream['audio'] = None
-        self.data_stream['distance'] = 5
+            self.data_stream['audio'] = None
+            self.data_stream['distance'] = 5
 
-        # calibramos un segundo completo para evitar falsos positivos de ruido
-        print(f"{INDENT_OUTPUT}[{self.name}] Calibrating ambient noise...")
-        with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=1)
+            # COMENTAMOS ESTO PARA QUE NO BLOQUEE EL MICRO
+            # print(f"{INDENT_OUTPUT}[{self.name}] Calibrating ambient noise...")
+            # with self.microphone as source:
+            #     self.recognizer.adjust_for_ambient_noise(source, duration=1)
 
-        self.publish_event(Event(type="distance_data", data=42, origin=self.name))
-        self.publish_event(Event(type="critical_obstacle", data=self.data_stream['distance'], origin=self.name))
+            self.publish_event(Event(type="distance_data", data=42, origin=self.name))
+            self.publish_event(Event(type="critical_obstacle", data=self.data_stream['distance'], origin=self.name))
 
-        threading.Thread(target=self._audio_loop, daemon=True).start()
+            # COMENTAMOS EL HILO DE AUDIO PARA QUE NO SECUESTRE EL HARDWARE
+            # threading.Thread(target=self._audio_loop, daemon=True).start()
 
-        while self.running:
-            try:
-                task = self.task_queue.get(timeout=0.05)
-                if hasattr(task, 'type'):
-                    self.handle_task(task)
-            except Empty:
-                pass
+            while self.running:
+                try:
+                    task = self.task_queue.get(timeout=0.05)
+                    if hasattr(task, 'type'):
+                        self.handle_task(task)
+                except Empty:
+                    pass
 
-        print(f"{INDENT_OUTPUT}[{self.name}] Stopped cleanly.")
+            print(f"{INDENT_OUTPUT}[{self.name}] Stopped cleanly.")

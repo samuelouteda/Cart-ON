@@ -39,7 +39,7 @@ class Display:
         # 🔌 CONEXIÓN USB CON LA LILYGO (ESP32 E-Ink)
         # =========================================================
         self.lilygo_serial = None
-        self.puerto_usb = 'COM3'  # Cámbialo a /dev/ttyACM0 o /dev/ttyUSB0 en la Raspberry
+        self.puerto_usb = 'ttyUcSB1'  # Cámbialo a /dev/ttyACM0 o /dev/ttyUcSB0 en la Raspberry
         self.baud_rate = 2000000  # 🚀 Subido a 2M para aguantar imágenes
         self.serial_lock = threading.Lock() # Bloqueo para evitar colisiones de hilos
         

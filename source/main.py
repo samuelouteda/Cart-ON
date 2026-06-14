@@ -84,12 +84,13 @@ def main():
 
     planner.append_modules([navigation, sensory, human_interaction, data_manager])
 
-    if linux_mode:
-        try:
-            ros_module = ROSModule("ROS", event_bus, shared_data)
-            planner.append_single_module(ros_module)
-        except Exception as e:
-            print(f"[MAIN] Error starting ROS module: {e}")
+    # COMENTADO: Desactivamos ROS/LiDAR temporalmente para probar los comandos de voz
+    # if linux_mode:
+    #     try:
+    #         ros_module = ROSModule("ROS", event_bus, shared_data)
+    #         planner.append_single_module(ros_module)
+    #     except Exception as e:
+    #         print(f"[MAIN] Error starting ROS module: {e}")
 
     # ==================================================================================================
     # Inicio de hilos ==================================================================================
@@ -102,8 +103,9 @@ def main():
     human_interaction.start()
     data_manager.start()
 
-    if linux_mode and 'ros_module' in locals():
-        ros_module.start()
+    # COMENTADO: No arrancamos el hilo de ROS/LiDAR
+    # if linux_mode and 'ros_module' in locals():
+    #     ros_module.start()
 
     print("[MAIN] System ready. Cart-ON running.")
 
@@ -137,8 +139,11 @@ def main():
                 print("[MAIN] Shutting down ROS...")
                 if wheel_firm:
                     wheel_firm.close()
-                if 'ros_module' in locals():
-                    ros_module.join(timeout=2)
+                
+                # COMENTADO: No esperamos a que cierre el hilo de ROS porque no se ha abierto
+                # if 'ros_module' in locals():
+                #     ros_module.join(timeout=2)
+                
                 rclpy.shutdown()
                 
         except Exception as e:
