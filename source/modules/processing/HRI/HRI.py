@@ -41,7 +41,6 @@ class HRI(BaseModule):
         # Mochila local
         self.lista_compra_local = shared_data.get('shopping_list', {}).copy()
 
-        # Ña maquina de 
         self.estado_fisico = "HABLA"  # Puede ser: "HABLA", "MAPEO" o "CONDUCCION"
 
         vosk.SetLogLevel(-1)
@@ -87,7 +86,6 @@ class HRI(BaseModule):
             
         elif task.type == "SPEAK":
             datos_nube = task.data
-            ####====================
             emocion_recibida = datos_nube.get("emocion", "neutro")
             texto = datos_nube.get("texto", "Error en la respuesta")
             audio_b64 = datos_nube.get("audio_b64", None)
@@ -131,13 +129,13 @@ class HRI(BaseModule):
             # Ejecución estado físico según la acción recibida del Planner
             if accion_fisica == "INICIAR_MAPEO":
                 self.estado_fisico = "MAPEO"
-                print(f"{INDENT_OUTPUT} 🧭 FSM: Cambiando estado a MAPEO. Despertando LIDAR...")
+                print(f"{INDENT_OUTPUT}[{self.name}] FSM: Cambiando estado a MAPEO. Despertando LIDAR...")
                 # Publicamos el evento para que arranque tu futuro código de ROS/SLAM
                 self.publish_event(Event(origin=self.name, type="START_MAPPING"))
                 
             elif accion_fisica == "INICIAR_CONDUCCION":
                 self.estado_fisico = "CONDUCCION"
-                print(f"{INDENT_OUTPUT} Cambiando estado a CONDUCCIÓN")
+                print(f"{INDENT_OUTPUT}[{self.name}] Cambiando estado a CONDUCCIÓN")
                 datos_navegacion = {
                     "aula": aula_recibida,
                     "lat": lat_recibida,
@@ -152,7 +150,7 @@ class HRI(BaseModule):
         # Tarea que indica que la acción física ha terminado
         elif task.type == "PHYSICAL_ACTION_DONE":
             self.estado_fisico = "HABLA"
-            print(f"\n{INDENT_OUTPUT} ✅ FSM: Acción física completada. Cart-ON vuelve al estado de HABLA.")
+            print(f"\n{INDENT_OUTPUT}[{self.name}] FSM: Acción física completada. Cart-ON vuelve al estado de HABLA.")
             self.display.update_data(status="SUCCESS", title="DESTINO ALCANZADO", robot_text="He llegado. ¿En qué más te ayudo?", image=None)
             self.puedo_escuchar.set()
 
@@ -211,7 +209,7 @@ class HRI(BaseModule):
             if necesita_despertar:
                 # Si está mapeando o conduciendo, no pide que le llamen Cartón
                 if self.estado_fisico == "HABLA":
-                    print(f"\n{INDENT_OUTPUT} Cart-ON en reposo. Di 'Cartón' para despertarlo...")
+                    print(f"\n{INDENT_OUTPUT}[{self.name}] Cart-ON en reposo. Di 'Cartón' para despertarlo...")
                 
                 stream = pa.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=4000)
                 stream.start_stream()
@@ -230,7 +228,7 @@ class HRI(BaseModule):
                         # Parada emergencia por voz
                         if "para" in texto_detectado or "emergencia" in texto_detectado or "stop" in texto_detectado:
                             if self.estado_fisico in ["CONDUCCION", "MAPEO"]:
-                                print(f"\n{INDENT_OUTPUT} 🛑 ¡PARADA DE EMERGENCIA POR VOZ DETECTADA!")
+                                print(f"\n{INDENT_OUTPUT}[{self.name}] ¡PARADA DE EMERGENCIA POR VOZ DETECTADA!")
                                 self.publish_event(Event(origin=self.name, type="EMERGENCY_STOP"))
                                 self.estado_fisico = "HABLA" # Forzamos el reinicio al habla
                         
@@ -262,17 +260,17 @@ class HRI(BaseModule):
                     # Interceptor estado físico: Si está conduciendo o mapeando, no envía a la nube, solo para emergencias
                     if self.estado_fisico == "CONDUCCION":
                         if "para" in texto or "detente" in texto:
-                            print(f"{INDENT_OUTPUT} 🛑 Orden de parada normal enviada al navegador.")
+                            print(f"{INDENT_OUTPUT}[{self.name}] Orden de parada normal enviada al navegador.")
                             self.publish_event(Event(origin=self.name, type="EMERGENCY_STOP"))
                             self.estado_fisico = "HABLA"
                         else:
-                            print(f"{INDENT_OUTPUT} 🚗 Silenciado localmente: El robot está ocupado conduciendo.")
+                            print(f"{INDENT_OUTPUT}[{self.name}] Silenciado localmente: El robot está ocupado conduciendo.")
                             self.display.update_data(robot_text="Shhh, estoy concentrado conduciendo. Di 'PARA' si hay peligro.")
                         self.puedo_escuchar.set()
                         necesita_despertar = True
                         
                     elif self.estado_fisico == "MAPEO":
-                        print(f"{INDENT_OUTPUT} 🧭 Silenciado localmente: El robot está escaneando el entorno.")
+                        print(f"{INDENT_OUTPUT}[{self.name}] Silenciado localmente: El robot está escaneando el entorno.")
                         self.puedo_escuchar.set()
                         necesita_despertar = True
                         
