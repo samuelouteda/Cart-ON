@@ -12,10 +12,11 @@ from core.config import Config
 def limpiar_nombre(texto):
     return texto.lower().strip() if texto else "producto desconocido"
 
-def crear_respuesta_cloud(texto, estado_actual, emocion="neutral", lista_compra=None, intent=None, aula=None, lat=None, lng=None, accion_fisica="NINGUNA", ruta_supermercado=None):
+def crear_respuesta_cloud(texto, estado_actual, modo="supermercado", emocion="neutral", lista_compra=None, intent=None, aula=None, lat=None, lng=None, accion_fisica="NINGUNA", ruta_supermercado=None):
     respuesta = {
         "status": "success",
         "texto": texto,
+        "modo": modo,  # Inyectado para actualizar el footer del front-end en tiempo real
         "emocion": emocion,
         "estado_actual": estado_actual,
         "intent": intent,
@@ -32,7 +33,7 @@ def crear_respuesta_cloud(texto, estado_actual, emocion="neutral", lista_compra=
 
 class PlannerCloud:
     def __init__(self):
-        print("[PlannerCloud] Orquestador Universal Dual (FSM + Visión + Multipunto) iniciado.")
+        print("[PlannerCloud] Orquestador Universal Dual Real (FSM + Visión + Multipunto + SM-Robust) iniciado.")
         self.sql = SQLManager()
         self.nlp = NLPQwen()
         self.estado_actual = "fase_2_interaccion"
@@ -56,29 +57,29 @@ class PlannerCloud:
             return crear_respuesta_cloud(
                 texto="Entendido. Apagando todos los sistemas físicos y lógicos. Buenas noches.",
                 estado_actual=self.estado_actual,
+                modo=self.modo_entorno,
                 emocion="feliz",
                 lista_compra=self.lista_compra,
                 intent="shutdown",
                 accion_fisica="SHUTDOWN"
             )
-        # =======================================================
 
         # 1. INTERCEPTOR ESTADO: MAPEO (Requiere contraseña de administrador)
         if ("modo admin" in texto_bajo or "modo administrador" in texto_bajo or "admin" in texto_bajo) and ("mapeo" in texto_bajo or "escanear" in texto_bajo):
             msg = f"Contraseña Delta Siete aceptada. Iniciando protocolo de escaneo y mapeo autónomo en modo {self.modo_entorno}."
-            return crear_respuesta_cloud(msg, self.estado_actual, "feliz", self.lista_compra, "start_mapping", accion_fisica="INICIAR_MAPEO")
+            return crear_respuesta_cloud(msg, self.estado_actual, modo=self.modo_entorno, emocion="feliz", lista_compra=self.lista_compra, intent="start_mapping", accion_fisica="INICIAR_MAPEO")
         
-        # 2. DETECTOR DE INTENCIÓN DE MOVIMIENTO GENERAL
+        # 2. DETECTOR DE INTENCIÓN DE MOVIMIENTO GENERAL (Hardware Real)
         palabras_movimiento = ["llévame", "llevame", "vamos", "guíame", "guiame", "conduce", "acompáñame"]
         quiere_moverse = any(p in texto_bajo for p in palabras_movimiento)
         
-        # 3. INTERCEPTORES DE CAMBIO DE MODO
-        if "modo escuela" in texto_bajo:
+        # 3. INTERCEPTORES DE CAMBIO DE MODO MEJORADOS (Acepta sinónimos de SM)
+        if any(kw in texto_bajo for kw in ["modo escuela", "modo universitario", "universidad", "modo campus"]):
             self.modo_entorno = "escuela"
-            return crear_respuesta_cloud("Modo escuela activado. Ahora soy tu guía universitario de la UAB.", self.estado_actual, "feliz", self.lista_compra, "change_mode")
-        elif "modo supermercado" in texto_bajo:
+            return crear_respuesta_cloud("Modo universitario activado. Ahora soy tu guía del campus de la UAB.", self.estado_actual, modo=self.modo_entorno, emocion="feliz", lista_compra=self.lista_compra, intent="change_mode")
+        elif any(kw in texto_bajo for kw in ["modo supermercado", "modo tienda", "compras", "supermercado"]):
             self.modo_entorno = "supermercado"
-            return crear_respuesta_cloud("Modo supermercado activado. Listo para rellenar la lista de la compra.", self.estado_actual, "feliz", self.lista_compra, "change_mode")
+            return crear_respuesta_cloud("Modo supermercado activado. Listo para rellenar la lista de la compra.", self.estado_actual, modo=self.modo_entorno, emocion="feliz", lista_compra=self.lista_compra, intent="change_mode")
 
         # 4. PROCESAMIENTO SEMÁNTICO NORMAL CON QWEN NLP
         resultado_nlp = self.nlp.parse_intent(texto_usuario, modo=self.modo_entorno)
@@ -92,6 +93,10 @@ class PlannerCloud:
             intent, item_crudo, quantity, group, time_val, reply, emocion_intent = "unknown", "producto desconocido", 1, None, None, None, "neutral"
 
         item = limpiar_nombre(item_crudo)
+        
+        # CHIVATO PARA LA CONSOLA: Vital para comprobar la telemetría semántica en la nube
+        print(f"👉 [DEBUG CLOUD] Modo Activo: {self.modo_entorno.upper()} | Intent: '{intent}' | Item: '{item}'")
+
         contexto_interno = ""
         accion_final = "NINGUNA"
 
@@ -103,7 +108,7 @@ class PlannerCloud:
         # Variable de ruta multipunto (Supermercado)
         ruta_supermercado = None
 
-       # --- CAPA DE NEGOCIO A: MODO SUPERMERCADO ---
+        # --- CAPA DE NEGOCIO A: MODO SUPERMERCADO ---
         if self.modo_entorno == "supermercado":
             
             # 1. AÑADIR PRODUCTOS
@@ -114,40 +119,29 @@ class PlannerCloud:
             
             # 2. ELIMINAR PRODUCTOS
             elif intent in ["remove", "delete", "clear", "drop"]:
-                
-                # CASO A: VACIAR LA LISTA ENTERA ("Borra la lista", "Quítalo todo")
                 if item in ["todo", "lista", "la lista", "producto desconocido"] or "lista" in texto_bajo or "todo" in texto_bajo:
                     self.lista_compra.clear()
                     contexto_interno = "El usuario te ha pedido vaciar la lista. Hazlo saber diciendo que la lista está completamente limpia y lista para empezar de nuevo."
-                
-                # CASO B y C: ELIMINAR UN PRODUCTO ESPECÍFICO
                 elif item in self.lista_compra:
-                    # CASO B: Eliminar todos los paquetes de un producto ("Quita la leche", "Borra todos los cereales")
-                    # Se activa si no especifica cantidad, si la cantidad es mayor al stock, o si dice "todo/todos"
                     if not quantity or quantity >= self.lista_compra[item] or "todo" in texto_bajo or "todos" in texto_bajo:
                         del self.lista_compra[item]
                         contexto_interno = f"Has eliminado completamente el {item} de la lista de la compra. Ya no queda ninguno."
-                    
-                    # CASO C: Eliminar solo una cantidad específica ("Quita 1 de leche")
                     else:
                         self.lista_compra[item] -= quantity
                         contexto_interno = f"Has quitado {quantity} de {item} de la lista. Aún le quedan {self.lista_compra[item]} en la cesta."
-                
-                # ERROR: Intenta borrar algo que no tiene
                 else:
                     contexto_interno = f"El usuario quiere borrar {item}, pero ese producto no está en su lista de la compra actual. Díselo con tacto."
 
             # 3. LEER LA LISTA
             elif intent == "read_list":
                 if self.lista_compra:
-                    # Construimos un texto plano con los productos: "2 de leche, 1 de pan..."
                     elementos = [f"{cant} de {prod}" for prod, cant in self.lista_compra.items()]
                     lista_texto = ", ".join(elementos[:-1]) + (f" y {elementos[-1]}" if len(elementos) > 1 else elementos[0])
                     contexto_interno = f"Dile al usuario con entusiasmo los productos que tiene en su lista. Contiene exactamente: {lista_texto}."
                 else:
                     contexto_interno = "Dile al usuario amablemente que su lista de la compra está vacía."
             
-            # 4. LÓGICA DE RUTA MULTIPUNTO DEL SUPERMERCADO
+            # 4. LÓGICA DE RUTA MULTIPUNTO DEL SUPERMERCADO (Hardware de Navegación del Robot Real)
             if quiere_moverse and self.lista_compra:
                 accion_final = "INICIAR_CONDUCCION"
                 contexto_interno = "Dile al usuario amablemente que vas a arrancar los motores para recorrer el supermercado y buscar los productos de su lista."
@@ -188,7 +182,10 @@ class PlannerCloud:
                     
                     if quiere_moverse:
                         accion_final = "INICIAR_CONDUCCION"
-                        contexto_interno = f"Dile de forma animada que le vas a guiar físicamente hasta el aula {item}. Que te siga."
+                        contexto_interno = f"Dile de forma animada que vas a arrancar motores para guiarle físicamente hasta el aula {item}. Que te siga."
+                else:
+                    # BLOQUEO DE ALUCINACIÓN INYECTADO DESDE SM
+                    contexto_interno = f"El usuario te ha pedido buscar la ubicación de {item}, pero NO existe en la base de datos de aulas. Pídele disculpas de forma clara e indícale amablemente que no tienes registros lógicos de ese lugar."
                         
             elif intent == "schedule_query":
                 info_clases = self.sql.get_school_info(item, group, time_val)
@@ -196,10 +193,13 @@ class PlannerCloud:
                     aula_objetivo = info_clases[0].get('aula')
                     lat_objetivo = info_clases[0].get('latitud')
                     lng_objetivo = info_clases[0].get('longitud')
+                    contexto_interno = f"Has encontrado su clase en el aula {aula_objetivo}. Dile que le has puesto el mapa en pantalla."
                     
                     if quiere_moverse and aula_objetivo:
                         accion_final = "INICIAR_CONDUCCION"
-                        contexto_interno = f"Has encontrado su clase en el aula {aula_objetivo}. Dile que le vas a llevar físicamente hasta allí ahora mismo."
+                        contexto_interno = f"Has encontrado su clase en el aula {aula_objetivo}. Dile que vas a iniciar la marcha de conducción autónoma para llevarle físicamente hasta allí ahora mismo."
+                else:
+                    contexto_interno = f"El usuario preguntó por la asignatura o clase '{item}', pero NO has encontrado registros coincidentes en los horarios. Infórmale amablemente del fallo de base de datos."
 
         # 5. GENERAR RESPUESTA FINAL CON EMOCIÓN DE LOS OJOS
         if not contexto_interno:
@@ -212,10 +212,10 @@ class PlannerCloud:
         if emocion_ojos == "neutral" and emocion_intent and emocion_intent != "neutro":
             emocion_ojos = emocion_intent
 
-        print(f"[PlannerCloud] Emoción final inyectada: -> {emocion_ojos.upper()} <- | Acción: {accion_final}")
+        print(f"[PlannerCloud] Emoción final inyectada: -> {emocion_ojos.upper()} <- | Acción Física: {accion_final}")
 
         return crear_respuesta_cloud(
-            texto=respuesta_natural, estado_actual=self.estado_actual, emocion=emocion_ojos,
+            texto=respuesta_natural, estado_actual=self.estado_actual, modo=self.modo_entorno, emocion=emocion_ojos,
             lista_compra=self.lista_compra, intent=intent, aula=aula_objetivo, lat=lat_objetivo,
             lng=lng_objetivo, accion_fisica=accion_final, ruta_supermercado=ruta_supermercado
         )
@@ -224,7 +224,7 @@ class PlannerCloud:
     # PIPELINE 2: PROCESAMIENTO SILENCIOSO DE IMÁGENES DE INVENTARIO (VLM)
     # =========================================================================
     def procesar_escaneo_estanteria(self, imagen_base64: str, robot_x: float, robot_y: float):
-        print(f"[Vision] Procesando escaneo de estantería. Posición Robot: X={robot_x:.2f}, Y={robot_y:.2f}")
+        print(f"[Vision] Procesando escaneo de estantería en tiempo real. Posición Espacial Robot: X={robot_x:.2f}, Y={robot_y:.2f}")
         
         prompt = (
             "Eres el sistema de visión de un robot de inventario de supermercado.\n"
@@ -235,7 +235,6 @@ class PlannerCloud:
             "Ejemplo: [{\"producto\": \"Botella de agua\", \"cantidad\": 1, \"caja\": [200, 300, 400, 600]}]"
         )
         
-        # 1. Inferencia del Modelo Visual de la UAB
         try:
             client = OpenAI(api_key="accesoAlLLM", base_url="https://dcc-llm.uab.cat/bes2/v1")
             response = client.chat.completions.create(
@@ -254,12 +253,12 @@ class PlannerCloud:
                 texto_crudo = texto_crudo[3:-3].strip()
                 
             detecciones = json.loads(texto_crudo)
-            print(f"[Vision] Detecciones del VLM: {detecciones}")
+            print(f"[Vision] Detecciones espaciales del VLM: {detecciones}")
         except Exception as e:
             print(f"[Vision] Error en la inferencia del VLM: {e}")
             detecciones = []
 
-        # 2. Guardar e indexar espacialmente en MySQL
+        # Indexación espacial real en MySQL para la Raspberry
         if detecciones:
             conn = self.sql.get_connection()
             if conn:
@@ -279,13 +278,13 @@ class PlannerCloud:
                             cursor.execute(query, (n_limpio, nombre.strip(), cant, robot_x, robot_y, cant, robot_x, robot_y))
                     conn.commit()
                     cursor.close()
-                    print(f"[SQL] Indexación espacial completada con éxito.")
+                    print(f"[SQL] Indexación de coordenadas y stock completada en caliente.")
                 except Exception as e:
-                    print(f"[SQL] Error insertando inventario: {e}")
+                    print(f"[SQL] Error insertando inventario geolocalizado: {e}")
                 finally:
                     conn.close()
 
-        # 3. Dibujar las Bounding Boxes sobre la imagen (OpenCV Headless RAM)
+        # Renderizado de Bounding Boxes de OpenCV
         img_anotada_b64 = None
         if detecciones:
             try:
@@ -296,14 +295,9 @@ class PlannerCloud:
                 for item in detecciones:
                     caja = item.get("caja", [])
                     if len(caja) == 4:
-                        # Qwen-VL usa formato [ymin, xmin, ymax, xmax] mapeado de 0 a 1000
                         y1, x1 = int(caja[0] * alto / 1000), int(caja[1] * ancho / 1000)
                         y2, x2 = int(caja[2] * alto / 1000), int(caja[3] * ancho / 1000)
-                        
-                        # Dibujamos rectángulo verde de bounding box
                         cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 3)
-                        
-                        # Colocamos la etiqueta con la cantidad encima
                         label = f"{item.get('producto', '???')} x{item.get('cantidad', 1)}"
                         cv2.putText(img, label, (x1, max(y1 - 10, 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 

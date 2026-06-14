@@ -32,6 +32,8 @@ class HRI(BaseModule):
         self.api_key = api_key
         self.data_task_bus = data_task_bus
         self.shared_data = shared_data
+        
+        # URL actualizada a tu backend Dual Oficial
         self.cloud_url = "https://cart-on-api-225606614592.europe-west1.run.app/api/v1/interaccion"
 
         self.speaker = Speaker("Speaker", event_bus, shared_data)
@@ -90,6 +92,10 @@ class HRI(BaseModule):
             texto = datos_nube.get("texto", "Error en la respuesta")
             audio_b64 = datos_nube.get("audio_b64", None)
             
+            # INYECCIÓN SM: Extraemos el modo de la nube
+            modo_actual = datos_nube.get("modo", "desconocido").upper()
+            texto_footer = f"Cart-ON (Físico) | MODO: {modo_actual}"
+            
             # Extraemos la acción física que nos indica el Planner
             accion_fisica = datos_nube.get("accion_fisica", "NINGUNA")
             
@@ -114,23 +120,16 @@ class HRI(BaseModule):
                 title=f"Ruta a {aula_recibida}" if aula_recibida else "Respuesta Asistente",
                 robot_text=texto,
                 image=imagen_mapa,
-                data_dict=self.lista_compra_local
+                data_dict=self.lista_compra_local,
+                footer=texto_footer  # Pasamos el footer (recuerda que tu display.py de la Raspi debe aceptarlo)
             )
             
             print(f"\n{INDENT_OUTPUT}[{self.name}] [Cart-ON Dice]: {texto}\n")
             
-            if audio_b64:
-                try:
-                    audio_bytes = base64.b64decode(audio_b64)
-                    self.speaker.play_audio(audio_bytes)
-                except Exception as e:
-                    print(f"{INDENT_OUTPUT}[{self.name}] Error al delegar audio al Speaker: {e}")
-
-            # Ejecución estado físico según la acción recibida del Planner
+            # Ejecución de estado físico (Se mantiene fuera del hilo para ejecutar de inmediato)
             if accion_fisica == "INICIAR_MAPEO":
                 self.estado_fisico = "MAPEO"
                 print(f"{INDENT_OUTPUT}[{self.name}] FSM: Cambiando estado a MAPEO. Despertando LIDAR...")
-                # Publicamos el evento para que arranque tu futuro código de ROS/SLAM
                 self.publish_event(Event(origin=self.name, type="START_MAPPING"))
                 
             elif accion_fisica == "INICIAR_CONDUCCION":
@@ -144,10 +143,24 @@ class HRI(BaseModule):
                 }
                 self.publish_event(Event(origin=self.name, type="START_DRIVING", data=datos_navegacion))
 
-            # Volvemos a abrir el semáforo para escuchar
-            self.puedo_escuchar.set()
+            # =======================================================
+            # HILO SECUNDARIO DE AUDIO (Para no congelar la LilyGo)
+            # =======================================================
+            def _reproducir_y_liberar():
+                if audio_b64:
+                    try:
+                        audio_bytes = base64.b64decode(audio_b64)
+                        self.speaker.play_audio(audio_bytes)
+                    except Exception as e:
+                        print(f"{INDENT_OUTPUT}[{self.name}] Error al delegar audio al Speaker: {e}")
 
-        # Tarea que indica que la acción física ha terminado
+                time.sleep(0.5) # Pausa respiratoria anti-ecos
+                
+                # Volvemos a abrir el semáforo para escuchar
+                self.puedo_escuchar.set()
+
+            threading.Thread(target=_reproducir_y_liberar, daemon=True).start()
+
         elif task.type == "PHYSICAL_ACTION_DONE":
             self.estado_fisico = "HABLA"
             print(f"\n{INDENT_OUTPUT}[{self.name}] FSM: Acción física completada. Cart-ON vuelve al estado de HABLA.")
@@ -244,22 +257,23 @@ class HRI(BaseModule):
             try:
                 with sr.Microphone(device_index=index_micro_usb) as source:
                     recognizer_google.adjust_for_ambient_noise(source, duration=1)
-                    print(f"{INDENT_OUTPUT}[{self.name}] Te escucho... (Tienes 10s para hablar)")
-                    audio = recognizer_google.listen(source, timeout=10, phrase_time_limit=10)
+                    print(f"{INDENT_OUTPUT}[{self.name}] Te escucho... (Tienes 40s para hablar)")
+                    # MEJORA SM: Ampliamos a 40 segundos de espera
+                    audio = recognizer_google.listen(source, timeout=40, phrase_time_limit=40)
 
                 self.puedo_escuchar.clear()
                 print(f"{INDENT_OUTPUT}[{self.name}] Traduciendo tu voz a texto...")
                 
                 texto = recognizer_google.recognize_google(audio, language="es-ES")
-                print(f"{INDENT_OUTPUT}[{self.name}] Has dicho: '{texto}'")
+                print(f"{INDENT_OUTPUT}[{self.name}] Has dicho: '{texto.lower()}'")
 
-                if texto == 'salir':
+                if texto.lower() == 'salir':
                     self.publish_event(Event(origin=self.name, type="SHUTDOWN"))
                     break
                 elif texto.strip():
-                    # Interceptor estado físico: Si está conduciendo o mapeando, no envía a la nube, solo para emergencias
+                    # Interceptor estado físico
                     if self.estado_fisico == "CONDUCCION":
-                        if "para" in texto or "detente" in texto:
+                        if "para" in texto.lower() or "detente" in texto.lower():
                             print(f"{INDENT_OUTPUT}[{self.name}] Orden de parada normal enviada al navegador.")
                             self.publish_event(Event(origin=self.name, type="EMERGENCY_STOP"))
                             self.estado_fisico = "HABLA"
@@ -277,12 +291,14 @@ class HRI(BaseModule):
                     else:
                         # Flujo HABLA normal: Lo mandamos a la nube
                         self.publish_event(Event(origin=self.name, type="VOICE_DETECTED", data=texto))
+                        necesita_despertar = False  # <--- MEJORA SM: Mantenemos la fluidez de conversación
                     
             except sr.WaitTimeoutError:
-                print(f"{INDENT_OUTPUT}[{self.name}] 10 segundos de inactividad. Vuelvo a dormir zZz...")
+                print(f"{INDENT_OUTPUT}[{self.name}] 40 segundos de inactividad. Vuelvo a dormir zZz...")
                 necesita_despertar = True
             except sr.UnknownValueError:
                 print(f"{INDENT_OUTPUT}[{self.name}] No te he entendido bien. Inténtalo de nuevo...")
+                necesita_despertar = False # Permite que siga escuchando directamente si falla en entender
                 self.puedo_escuchar.set() 
             except Exception as e:
                 if self.running:
@@ -301,6 +317,3 @@ class HRI(BaseModule):
         if ahora - self.ultimo_refresco >= 0.05: 
             self.display.refresh()
             self.ultimo_refresco = ahora
-
-
-            
