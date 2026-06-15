@@ -1,80 +1,115 @@
-# Cart-ON
-Robot asistente guía.
-
-## Índice del projecto
-- [Descripción](#Descripción)
-- [Arquitectura Tecnológica](#Arquitectura-Tecnológica)
-- [Software](#Software)
-- [Componentes Hardware](#Componentes-Hardware)
-- [Diseño 3D](#Diseño-3D)
-- [Enlaces](#Enlaces)
-- [Instalacion] (#Instalacion)
-- [Miembros del equipo](#Miembros-del-equipo)
-
-## Descripción
-Este proyecto consiste en el desarrollo de un robot guia autónomo diseñado para la orientación en espacios interiores complejos, como supermercados y centros educativos. El robot interactúa con el usuario mediante comandos de voz, procesa la solicitud y guía a la persona hasta el destino u objeto deseado de forma segura y eficiente.
-
-## Arquitectura Tecnológica
-- SLAM (Simultaneous Localization and Mapping):
-Utilizamos algoritmos de SLAM para que el robot construya un mapa del entorno mientras calcula su propia posición. Esto se logra mediante un sensor de distancia (LiDAR), permitiendo una navegación precisa en diferentes escenarios.
-
-- Visión Artificial y Reconocimiento de Objetos:
-Una vez el terreno es conocido, el sistema emplea modelos de Computer Vision para diferenciar objetos o productos. Esto permite que el robot no solo sepa donde esta la fruta, sino también que tipo de fruta hay.
-
-- Procesamiento de Lenguaje y Voz (Cloud Services):
-  - Speech-to-Text (STT): Captura del audio ambiental para convertir la voz del usuario en texto procesable mediante servicios en la nube.
-  - Text-to-Speech (TTS): Generación de una respuesta vocal para que el robot confirme el destino o interactúe con el usuario.
-
-## Software
-
-![Diagrama de capas](documentos/diagramas/diagrama_capas.jpeg)
-
-## Componentes Hardware
-
-| Componente | Especificación Técnica | Cantidad |
-| :--- | :--- | :---: |
-| **Cámara** | Raspberry Pi Camera Module v1.3 (5 MP, Sensor OmniVision OV5647) | 1 |
-**Sensor LiDAR** | Slamtec RPLIDAR C1 (Escaneo 2D de 360°, alcance de 12m, tecnología DToF) | 1 |
-| **Micrófono** | MillSO Mini Micrófono USB para PC (Omnidireccional, plug-and-play, captación de voz) | 1 |
-| **Altavoces** | Altavoces genéricos USB (Alimentación USB de 5V con entrada de audio por conector Jack de 3.5mm) | 1 |
-| **Pantallas Ojos** | Pantalla OLED 1.3" (Resolución 128x64, Controlador SSH1106, interfaz I2C) | 2 |
-| **Pantalla Central** | LILYGO T5 4.7" S3 E-paper (Pantalla de tinta electrónica, SoC ESP32-S3, resolución 960x540) | 1 |
-| **Batería Lipo** | Batería Zaaa 2S (7.4V, 5200mAh, tasa de descarga de 50C, 38.48 Wh) | 1 |
-| **Power Bank** | CUKTECH 15 Power Bank (20000mAh, carga rápida bidireccional de hasta 150W MAX) | 1 |
-| **SBC** | Raspberry Pi 4 Model B (Procesador Quad-core a 1.5GHz, 4GB de memoria RAM LPDDR4) | 1 |
-| **Microcontrolador** | Arduino Uno Rev3 | 1 |
-| **Motores de Tracción** | Motor DC Globe Motors 12V (Model: 455A1016) | 2 |
-| **Encóderes Rotativos** | Encóder óptico incremental US Digital (Serie E5) | 2 |
-| **Ruedas** | Ruedas genéricas antipinchazos 15 cm de diámetro| 2 |
-| **Caster Wheels**| Ruedas locas genéricas 6 cm de diámetro | 2 |
-
-## Diseño 3D
-
-![3DCUERPO](documentos/3D_CUERPO.jpeg)
+# Projecte Cart-ON: Sistema Robòtic Assistent i Guia Autònom
 
 
+Aquest repositori conté el codi font, l'arquitectura i la documentació de **Cart-ON**, un Robot Mòbil Autònom (AMR) dissenyat per a l'assistència, orientació i guiatge en espais interiors complexos. Desenvolupat inicialment en el marc del Hackathon 2024, el sistema integra navegació autònoma avançada, interacció natural mitjançant veu i models d'Intel·ligència Artificial generativa.
 
-## Enlaces:
-<a href="https://docs.google.com/document/d/17ys1AdFQXFy2MDise_eSwjZ4mOGR0Uw6nk950iQLUHs/edit?usp=sharing" target="_blank">Documento de Especificación de Requisitos del Sistema</a>
+---
 
-<a href="https://docs.google.com/spreadsheets/d/1p9h1Z-hoTksufFietCflG6-x_P8x_Dwd/edit?gid=2124654508#gid=2124654508" target="_blank">Presupuesto Componentes del Robot</a>
+## 📑 Índex del Projecte
+1. [Descripció General i Casos d'Ús](#1-descripció-general-i-casos-dús)
+2. [Arquitectura Tecnològica (Edge-Cloud)](#2-arquitectura-tecnològica-edge-cloud)
+3. [Especificacions de Maquinari](#3-especificacions-de-maquinari)
+4. [Disseny 3D i Mecànica](#4-disseny-3d-i-mecànica)
+5. [Instal·lació i Desplegament](#5-instal·lació-i-desplegament)
+6. [Procediment d'Execució](#6-procediment-dexecució)
+7. [Enllaços d'Interès](#7-enllaços-dinterès)
+8. [Equip de Desenvolupament](#8-equip-de-desenvolupament)
 
-## Instalacion:
+---
 
-Prerrequisitos:
-- ROS 2 Jazzy
+## 1. Descripció General i Casos d'Ús
 
-Paquetes ROS necesarios:
-- rclpy
-- sensor_msgs
-- nav_msgs
+L'objectiu principal de Cart-ON és resoldre el problema de la navegació i localització de productes o destinacions en espais interiors on el senyal GPS no és viable. El robot no només actua com un vehicle de guiatge físic, sinó com un assistent cognitiu multimodal, capaç d'entendre instruccions de veu en llenguatge natural, raonar sobre l'entorn i interactuar visualment i de forma auditiva amb l'usuari.
 
-Cada vez que se inicia el entorno Ubuntu:
-source /opt/ros/jazzy/setup.bash
+El sistema disposa d'una màquina d'estats lògica que permet operar en dos entorns principals:
+* **Entorn Retail (Supermercat):** Proporciona funcionalitats de gestió de la llista d'anar a comprar, escaneig de prestatgeries mitjançant Visió per Computador per actualitzar l'inventari en temps real, i guiatge físic fins a la ubicació exacta dels productes.
+* **Entorn Acadèmic (Campus Universitari):** Connectat a la base de dades de la UAB, el sistema processa consultes d'horaris, assignatures i aules, generant mapes visuals a la interfície i calculant la ruta òptima per guiar els estudiants.
 
-## Miembros del equipo:
-- Daniel Cruz Flores. NIU 1709912
-- Felipe Marcano Hurtado. NIU 1635636
-- Marc Solés i Rojas. NIU 1710741
-- Marco Mejías Alés. NIU 1710748
-- Samuel Jesus Outeda Aponte. NIU 1711378
+---
+
+## 2. Arquitectura Tecnològica (Edge-Cloud)
+
+Per tal de garantir una resposta en temps real i evitar colls d'ampolla computacionals en el maquinari mòbil, l'arquitectura del programari s'ha dividit en un paradigma Edge-Cloud.
+
+### 2.1. Capa Edge (Processament Local al Robot)
+Aquesta capa s'executa a la placa principal (Raspberry Pi) i s'encarrega de les tasques crítiques de control, percepció immediata i maquinari:
+* **Middleware ROS 2 (Jazzy):** Orquestra els nodes de comunicació entre sensors i actuadors.
+* **Navegació i SLAM:** Mitjançant el sensor LiDAR (Slamtec RPLIDAR C1), el robot construeix mapes topològics 2D i calcula la seva odometria per evitar obstacles dinàmics de manera autònoma.
+* **HRI (Human-Robot Interaction):** Gestió en temps real dels micròfons, síntesi de veu (TTS) i control de les interfícies gràfiques (pantalla E-ink principal i pantalles OLED per a l'expressivitat facial).
+
+### 2.2. Capa Cloud (Processament Lògic i IA)
+Aquesta capa externalitza la càrrega cognitiva a un servidor *Serverless* desplegat a **Google Cloud Run** mitjançant una API RESTful construïda amb FastAPI:
+* **Processament de Llenguatge Natural (NLP):** S'integren crides a l'API dels models LLM (Qwen de la UAB) per traduir la veu de l'usuari a intencions estructurades (JSON) i generar respostes empàtiques.
+* **Visió Artificial (VLM):** Processament d'imatges codificades en Base64 procedents de la càmera del robot per detectar productes, obtenir les *Bounding Boxes* i localitzar-los espacialment.
+* **Persistència de Dades (MySQL):** Base de dades relacional que emmagatzema l'inventari geolocalitzat i els horaris acadèmics, resolent ambicions terminològiques (com les variacions entre català i castellà de les assignatures) mitjançant algorismes d'extracció d'arrels.
+
+![Diagrama de capes](documentos/diagramas/diagrama_capas.jpeg)
+
+---
+
+## 3. Especificacions de Maquinari
+
+El disseny de Cart-ON és modular, combinant components industrials amb electrònica de consum per optimitzar el cost sense sacrificar la precisió.
+
+| Categoria | Component | Especificació Tècnica | Quantitat |
+| :--- | :--- | :--- | :---: |
+| **Unitat Central** | **SBC (Single Board Computer)** | Raspberry Pi 4 Model B (Processador Quad-core 1.5GHz, 4GB RAM LPDDR4) | 1 |
+| **Control de Baix Nivell**| **Microcontrolador** | Arduino Uno Rev3 (Gestió directa de motors i sensors simples) | 1 |
+| **Sensòrica i Percepció** | **Sensor LiDAR** | Slamtec RPLIDAR C1 (Escaneig 2D de 360°, abast de 12m, tecnologia DToF) | 1 |
+| | **Càmera** | Raspberry Pi Camera Module v1.3 (5 MP, Sensor OmniVision OV5647) | 1 |
+| | **Micròfon** | MillSO Mini Micròfon USB per a PC (Omnidireccional, plug-and-play) | 1 |
+| **Interacció (HRI)** | **Pantalla Central** | LILYGO T5 4.7" S3 E-paper (Tinta electrònica, SoC ESP32-S3, resolució 960x540) | 1 |
+| | **Pantalles Facials (Ulls)** | Pantalla OLED 1.3" (Resolució 128x64, Controlador SSH1106, bus I2C) | 2 |
+| | **Altaveus** | Altaveus genèrics USB (Alimentació 5V, connector Jack 3.5mm) | 1 |
+| **Locomoció i Tracció** | **Motors de Tracció** | Motor DC Globe Motors 12V (Model: 455A1016) | 2 |
+| | **Encòders Rotatius** | Encòder òptic incremental US Digital (Sèrie E5) per a odometria precisa | 2 |
+| | **Rodes Principals** | Rodes genèriques antipunxades (15 cm de diàmetre) | 2 |
+| | **Rodes de Suport (Caster)** | Rodes boges genèriques (6 cm de diàmetre) | 2 |
+| **Sistema Energètic** | **Bateria Lipo** | Bateria Zaaa 2S (7.4V, 5200mAh, taxa de descàrrega 50C, 38.48 Wh) | 1 |
+| | **Power Bank** | CUKTECH 15 Power Bank (20000mAh, càrrega ràpida bidireccional fins a 150W MAX) | 1 |
+
+---
+
+## 4. Disseny 3D i Mecànica
+
+El xassís de Cart-ON ha estat dissenyat per suportar la integració harmònica de tots els components electrònics, mantenint un centre de gravetat baix i oferint una estructura ergonòmica perquè els usuaris puguin llegir la pantalla E-ink amb facilitat.
+
+![Visualització del disseny 3D](documentos/3D_CUERPO.jpeg)
+
+---
+
+## 5. Instal·lació i Desplegament
+
+### 5.1. Prerequisits del Sistema Edge (Local)
+L'entorn de desenvolupament principal requereix una distribució de Linux compatible amb l'ecosistema ROS.
+* **Sistema Operatiu:** Ubuntu 24.04 LTS.
+* **Middleware:** ROS 2 Jazzy.
+* **Llenguatge:** Python 3.10 o superior.
+
+**Paquets ROS 2 necessaris:**
+Cal verificar la presència dels paquets bàsics d'orquestració de missatges:
+* `rclpy`
+* `sensor_msgs`
+* `nav_msgs`
+
+### 5.2. Configuració de l'Entorn Local
+1. Clonació del repositori oficial: git clone [https://github.com/el-vostre-repositori/Cart-ON.git](https://github.com/el-vostre-repositori/Cart-ON.git)
+  cd Cart-ON
+2. Instal·lació de dependències de Python (entorn virtual recomanat):
+  pip install -r requirements.txt
+3. Incorporació de les variables d'entorn de ROS 2 al terminal actiu (aquesta acció s'ha de repetir cada cop que s'iniciï una nova sessió d'Ubuntu):
+  source /opt/ros/jazzy/setup.bash
+4. Execució carpeta ./source: python main.py
+
+---
+
+### 6. Equip de desenvolupament
+
+Daniel Cruz Flores - NIU 1709912
+Felipe Marcano Hurtado - NIU 1635636
+Marc Solés i Rojas - NIU 1710741
+Marco Mejías Alés - NIU 1710748
+Samuel Jesus Outeda Aponte - NIU 1711378
+
+
+  
