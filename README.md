@@ -1,7 +1,9 @@
 # Projecte Cart-ON: Sistema Robòtic Assistent i Guia Autònom
 
 
-Aquest repositori conté el codi font, l'arquitectura i la documentació de **Cart-ON**, un Robot Mòbil Autònom (AMR) dissenyat per a l'assistència, orientació i guiatge en espais interiors complexos. Desenvolupat inicialment en el marc del Hackathon 2024, el sistema integra navegació autònoma avançada, interacció natural mitjançant veu i models d'Intel·ligència Artificial generativa.
+**Cart-ON** es un Robot Mòbil Autònom (AMR) dissenyat per a l'assistència, orientació i guiatge en espais interiors complexos. El sistema integra navegació autònoma avançada, interacció natural mitjançant veu i models d'Intel·ligència Artificial generativa.
+
+https://github.com/user-attachments/assets/891a531e-57d5-429f-b882-7a4eace39d10
 
 ---
 
@@ -19,7 +21,7 @@ Aquest repositori conté el codi font, l'arquitectura i la documentació de **Ca
 
 ## 1. Descripció General i Casos d'Ús
 
-L'objectiu principal de Cart-ON és resoldre el problema de la navegació i localització de productes o destinacions en espais interiors on el senyal GPS no és viable. El robot no només actua com un vehicle de guiatge físic, sinó com un assistent cognitiu multimodal, capaç d'entendre instruccions de veu en llenguatge natural, raonar sobre l'entorn i interactuar visualment i de forma auditiva amb l'usuari.
+L'objectiu principal de Cart-ON és assistir en la navegació i localització de productes o destinacions en espais qüotidians, oferint una experiència amigable. No només actua com un vehicle de guiatge físic, sinó com un assistent cognitiu multimodal, capaç d'entendre instruccions de veu en llenguatge natural, raonar sobre l'entorn i interactuar visualment i de forma auditiva amb l'usuari.
 
 El sistema disposa d'una màquina d'estats lògica que permet operar en dos entorns principals:
 * **Entorn Retail (Supermercat):** Proporciona funcionalitats de gestió de la llista d'anar a comprar, escaneig de prestatgeries mitjançant Visió per Computador per actualitzar l'inventari en temps real, i guiatge físic fins a la ubicació exacta dels productes.
