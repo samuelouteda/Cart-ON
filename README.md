@@ -13,9 +13,7 @@ https://github.com/user-attachments/assets/891a531e-57d5-429f-b882-7a4eace39d10
 3. [Especificacions de Maquinari](#3-especificacions-de-maquinari)
 4. [Disseny 3D i Mecànica](#4-disseny-3d-i-mecànica)
 5. [Instal·lació i Desplegament](#5-instal·lació-i-desplegament)
-6. [Procediment d'Execució](#6-procediment-dexecució)
-7. [Enllaços d'Interès](#7-enllaços-dinterès)
-8. [Equip de Desenvolupament](#8-equip-de-desenvolupament)
+6. [Equip de Desenvolupament](#6-equip-de-desenvolupament)
 
 ---
 
